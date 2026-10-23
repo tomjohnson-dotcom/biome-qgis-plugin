@@ -35,6 +35,7 @@ class BNGPlugin:
         self.panel  = None
         self.action = None
         self.mode_action = None
+        self._updater = None
         self._loading_project = False   # True while a project file is being read
         self._persisting_scratch = False  # guard against projectSaved re-entrancy
         # Becomes True a short moment after QGIS finishes launching. The
@@ -338,6 +339,16 @@ class BNGPlugin:
         except Exception:
             pass
 
+        # Check Biome's configured release catalogue after QGIS has settled.
+        # A newer release is offered as a one-click, in-place update and the
+        # Python plugin reloads automatically when installation completes.
+        try:
+            from .updater import BiomeUpdater
+            self._updater = BiomeUpdater(self.iface, os.path.dirname(__file__))
+            self._updater.schedule_check()
+        except Exception:
+            self._updater = None
+
     def _on_biome_mode_toggled(self, checked):
         from . import biome_mode
         try:
@@ -448,6 +459,13 @@ class BNGPlugin:
             self._kill_field_mapper_processes()
             _slog("unload: end (quit path)")
             return
+        try:
+            if self._updater is not None:
+                self._updater.stop()
+                self._updater.deleteLater()
+                self._updater = None
+        except Exception:
+            pass
         try:
             from . import zoomstack
             zoomstack.remove_path_preprocessor()

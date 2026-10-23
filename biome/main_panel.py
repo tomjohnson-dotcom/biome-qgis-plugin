@@ -2521,7 +2521,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         tools = [
             ("layers",     "Manage",        self._open_manage_screen,   "View, edit, reshape and delete placed features"),
             ("ruler",      "Measurements",  self._open_measurements,    "Measure distances and areas on the map"),
-            ("map",        "Final Map",     self._create_final_map,     "Generate a print-ready habitat survey map"),
+            ("map",        "Map Builder",   self._create_final_map,     "Create a print-ready survey or custom map"),
             ("table",      "Export Table",  self._export_table,          "Export all habitat data to an Excel reference table"),
             ("file",       "Blank Metric",  self._save_blank_metric,     "Save a blank copy of the statutory BNG metric"),
             ("file-chart", "Filled Metric", self._export_filled_metric,  "Export the statutory BNG metric pre-filled with your mapped habitats"),

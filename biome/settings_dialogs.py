@@ -422,7 +422,7 @@ class SettingsDialogsMixin:
             "palette", "Final map branding", _branding_status, "Customise…",
             self._open_branding_dialog,
             "Theme colours, logo and footnote for the print-ready map sidebar "
-            "(Create Final Map). Save themes and pick the active one.")
+            "(Map Builder). Save themes and pick the active one.")
         _add_row(
             "leaf", "Quick Habitats", _qh_status, "Customise…",
             self._open_quick_habitats_dialog,
@@ -493,7 +493,7 @@ class SettingsDialogsMixin:
         _add_row(
             "tag", "Map titles & headings", _titles_status, "Customise…",
             lambda: self._open_map_titles_dialog(dlg),
-            "Permanently reword the default titles — the Create Final Map "
+            "Permanently reword the default titles — the Map Builder "
             "defaults, the desk study map titles and their legend headings. "
             "One-off edits (the title field, right-click rename) still layer "
             "on top for the session.")
@@ -1250,7 +1250,7 @@ class SettingsDialogsMixin:
                     break
 
     def _open_map_titles_dialog(self, parent=None):
-        """Permanently reword the shipped default titles: the Create Final Map
+        """Permanently reword the shipped default titles: the Map Builder
         defaults per map type, the desk study map titles, and the desk maps'
         printed legend headings. An empty box means the shipped default (shown
         as the placeholder); Save stores only real changes. These are the
@@ -1282,7 +1282,7 @@ class SettingsDialogsMixin:
             "Reword any default title for good — it will be pre-filled on every "
             "map from now on. Leave a box empty to keep the shipped default "
             "(shown greyed inside it). One-off edits still work as before: the "
-            "title field in Create Final Map, and right-clicking a desk study "
+            "title field in Map Builder, and right-clicking a desk study "
             "map button, override these for the session.")
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#54635A; font-size:11px;")

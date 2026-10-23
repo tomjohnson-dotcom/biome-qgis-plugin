@@ -304,7 +304,6 @@ def _imagery_credit(layers):
     return ""
 
 SETTINGS_KEY_CREATED  = "BiomeMapper/createdBy"
-SETTINGS_KEY_FOOTNOTE = "BiomeMapper/showFootnote"
 SETTINGS_KEY_STATS    = "BiomeMapper/showStats"
 SETTINGS_KEY_AREA     = "BiomeMapper/showArea"
 SETTINGS_KEY_UNITS    = "BiomeMapper/showUnits"
@@ -368,7 +367,7 @@ class MapExportDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Create Final Map")
+        self.setWindowTitle("Map Builder")
         self.setMinimumWidth(380)
         self._settings = QSettings()
         self._build_ui()
@@ -500,8 +499,9 @@ class MapExportDialog(QDialog):
 
         # ── Sidebar footnote option (the 'EPSG · Generated with Biome' line) ─
         self.footnote_check = QCheckBox("Show projection / Biome footnote")
-        self.footnote_check.setChecked(
-            self._settings.value(SETTINGS_KEY_FOOTNOTE, "true") in (True, "true"))
+        # Opt in for each map.  Do not carry a previous map's choice into the
+        # next export: the unobtrusive default is a clean, unbranded footer.
+        self.footnote_check.setChecked(False)
         self.footnote_check.setStyleSheet("padding: 4px 2px;")
         layout.addWidget(self.footnote_check)
 
@@ -685,10 +685,9 @@ class MapExportDialog(QDialog):
         # Prepared By — persist permanently
         if created:
             self._settings.setValue(SETTINGS_KEY_CREATED,  created)
-        # Footnote toggle — persist permanently
+        # Footnote toggle — intentionally applies only to this map.  The next
+        # map starts unticked so branding is always an explicit choice.
         show_footnote = self.footnote_check.isChecked()
-        self._settings.setValue(SETTINGS_KEY_FOOTNOTE,
-                                "true" if show_footnote else "false")
         # Habitat stats toggles — persist permanently
         show_area  = self.area_check.isChecked()
         show_units = self.units_check.isChecked()

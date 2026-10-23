@@ -1470,7 +1470,7 @@ class _OnboardingWizard(QDialog):
                 "Open the <b>Summary</b> tab to review baseline vs proposed totals.",
                 "Use <b>Manage Features</b> to edit, reshape, recolour or delete "
                 "anything.",
-                "From the home screen: <b>Create Final Map</b>, <b>Export Table</b>, "
+                "From the home screen: <b>Map Builder</b>, <b>Export Table</b>, "
                 "<b>Blank Metric</b> or <b>Filled Metric</b> (pre-filled from your "
                 "map).",
             ],
