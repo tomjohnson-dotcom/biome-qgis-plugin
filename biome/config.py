@@ -83,6 +83,8 @@ _BASEMAP_BUTTON_ORDER_SETTING = "biome/ui/basemap_button_order"
 _BASEMAP_BUTTON_DEFAULTS = (
     "Google Hybrid", "Google Satellite", "__offline__",
     "ESRI World Imagery", "OS Outdoor", "OS Premium")
+_BASEMAP_BUTTONS_ENABLED_BY_DEFAULT = (
+    "Google Hybrid", "Google Satellite", "__offline__", "OS Premium")
 
 
 def get_enabled_basemap_buttons():
@@ -93,7 +95,7 @@ def get_enabled_basemap_buttons():
     except Exception:
         raw = None
     if raw is None:
-        return set(_BASEMAP_BUTTON_DEFAULTS)
+        return set(_BASEMAP_BUTTONS_ENABLED_BY_DEFAULT)
     if isinstance(raw, str):
         values = [part for part in raw.split("|") if part]
     else:

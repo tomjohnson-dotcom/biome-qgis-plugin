@@ -6142,12 +6142,22 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
 
         Operates on EVERY layer carrying each basemap name — if duplicates
         exist (e.g. from an older project), all copies of the others are
-        switched off, so the previous basemap can never linger visible."""
+        switched off, so the previous basemap can never linger visible.
+
+        Hybrid and Satellite also repair a partially initialised first-run
+        project by loading the standard base layers on demand."""
         from qgis.core import QgsProject
         from . import zoomstack as oszoom
         basemap_names = {"OS Outdoor", "OS Premium", "Google Hybrid",
                          "Google Satellite", "ESRI World Imagery"}
+        project = QgsProject.instance()
+        if layer_name in {"Google Hybrid", "Google Satellite"} \
+                and not project.mapLayersByName(layer_name):
+            load_base_layers(get_os_api_key())
         root = QgsProject.instance().layerTreeRoot()
+        base_group = root.findGroup("Base Maps")
+        if base_group is not None:
+            base_group.setItemVisibilityChecked(True)
         zs_group = root.findGroup(oszoom.ZOOMSTACK_GROUP)
         if zs_group is not None:
             zs_group.setItemVisibilityChecked(layer_name == oszoom.ZOOMSTACK_GROUP)

@@ -58,7 +58,7 @@ def write_catalogue(info, version, archive):
     <icon>{RAW_BASE}/biome/icon.png</icon>
     <tags>{tags}</tags>
     <download_url>{RAW_BASE}/releases/{archive.name}</download_url>
-    <file_name>{archive.name}</file_name>
+    <file_name>biome.zip</file_name>
     <experimental>{escape(info.get("experimental", "False"))}</experimental>
     <deprecated>{escape(info.get("deprecated", "False"))}</deprecated>
     <create_date>{today}</create_date>

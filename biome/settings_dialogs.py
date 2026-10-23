@@ -200,13 +200,14 @@ class SettingsDialogsMixin:
         pages = QStackedWidget()
         category_names = (
             "General", "Map & Tools", "Desk Study",
-            "Reports & maps", "Connections", "Advanced")
+            "Reports & maps", "Connections", "QGIS setup", "Advanced")
         category_meta = {
             "General": ("contrast", "How Biome looks and behaves."),
             "Map & Tools": ("map", "Drawing, annotation, boundaries, and site setup."),
             "Desk Study": ("map-search", "Search distances and ecological data handling."),
             "Reports & maps": ("file-text", "The appearance and wording of exported outputs."),
             "Connections": ("key", "External map and data-service credentials."),
+            "QGIS setup": ("rocket", "Windows and QGIS installation guidance."),
             "Advanced": ("settings", "Specialist and troubleshooting controls."),
         }
         category_layouts = {}
@@ -276,6 +277,7 @@ class SettingsDialogsMixin:
             "OS NGD premium key": "Connections",
             "Google Maps API key": "Connections",
             "Spatial Hub Scotland key": "Connections",
+            "Default QGIS version": "QGIS setup",
             "Live Claude Edit": "Advanced",
         }
 
@@ -526,6 +528,23 @@ class SettingsDialogsMixin:
             "Dark here applies in seconds — far faster than flipping Windows "
             "with QGIS open.")
 
+        def _default_qgis_status():
+            from qgis.PyQt.QtCore import QCoreApplication
+            import os
+            executable = QCoreApplication.applicationFilePath()
+            version_folder = os.path.basename(
+                os.path.dirname(os.path.dirname(executable)))
+            return (f"This copy is running from {version_folder}"
+                    if version_folder else "Use the QGIS version currently open")
+
+        _add_row(
+            "rocket", "Default QGIS version",
+            _default_qgis_status, "Show instructions…",
+            lambda: self._open_default_qgis_dialog(dlg),
+            "Make Windows open saved .qgz and .qgs projects in this version "
+            "of QGIS. The instructions include the exact installation path "
+            "and a button that opens the correct folder.")
+
         def _live_edit_status():
             from . import live_edit
             return live_edit.status_text()
@@ -554,6 +573,70 @@ class SettingsDialogsMixin:
         foot.addWidget(close_btn)
         v.addLayout(foot)
 
+        dlg.exec()
+
+    def _open_default_qgis_dialog(self, parent=None):
+        """Explain how to associate QGIS project files with this installation."""
+        import os
+        from qgis.PyQt.QtCore import QCoreApplication, QUrl
+        from qgis.PyQt.QtGui import QDesktopServices, QGuiApplication
+        from qgis.PyQt.QtWidgets import (
+            QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+        )
+
+        executable = os.path.normpath(QCoreApplication.applicationFilePath())
+        install_folder = os.path.dirname(executable)
+        version_folder = os.path.basename(os.path.dirname(install_folder))
+
+        dlg = QDialog(parent or self)
+        dlg.setWindowTitle("Default QGIS version")
+        dlg.setMinimumWidth(570)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
+
+        heading = QLabel(f"Open saved projects with {version_folder or 'this QGIS version'}")
+        heading.setStyleSheet("font-size:15px;font-weight:600;color:#183B2A;")
+        layout.addWidget(heading)
+
+        instructions = QLabel(
+            "Windows may not show a newly installed QGIS version in the app list. "
+            "Use these steps once for each project-file type:\n\n"
+            "1. Right-click any saved QGIS project and choose Open with, then "
+            "Choose another app.\n"
+            "2. Choose an app on your PC.\n"
+            "3. Open the QGIS bin folder shown below and select qgis-bin.exe.\n"
+            "4. Confirm Always use this app to open the file.\n\n"
+            "Repeat for .qgz and .qgs files if your organisation uses both.")
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("font-size:12px;color:#344A3E;")
+        layout.addWidget(instructions)
+
+        path_label = QLabel(executable)
+        path_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        path_label.setWordWrap(True)
+        path_label.setStyleSheet(
+            "font-family:Consolas,monospace;font-size:11px;color:#174C32;"
+            "background:#E5F1E9;border:1px solid #B8CEBF;"
+            "border-radius:6px;padding:7px;")
+        layout.addWidget(path_label)
+
+        buttons = QHBoxLayout()
+        open_folder = QPushButton("Open QGIS bin folder")
+        open_folder.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(install_folder)))
+        buttons.addWidget(open_folder)
+        copy_path = QPushButton("Copy path")
+        copy_path.clicked.connect(
+            lambda: QGuiApplication.clipboard().setText(executable))
+        buttons.addWidget(copy_path)
+        buttons.addStretch(1)
+        close = QPushButton("Close")
+        close.setDefault(True)
+        close.clicked.connect(dlg.accept)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
         dlg.exec()
 
     def _open_redline_snapping_dialog(self, parent=None):
