@@ -1729,10 +1729,27 @@ def _measure_habitat_legend(legend, fig_lines, map_item=None,
                 n_headings += 1
                 seen = set()
                 raw_labels = []
-                for node in nodes:
+                # Display labels are not guaranteed to equal categorized
+                # renderer values.  Ecological Buffer Zones, for example,
+                # stores a numeric distance but displays "50 m buffer".  Use
+                # the renderer category value for the presence test, while
+                # retaining the friendly node label for wrapping/measurement.
+                # This mirrors `_apply_legend_style`; comparing the display
+                # label directly made the fitter count the buffer heading but
+                # none of its visible rows, producing a cramped key.
+                categories = []
+                try:
+                    categories = list(rend.categories())
+                except Exception:
+                    pass
+                for idx, node in enumerate(nodes):
                     label = node.data(_Qt.ItemDataRole.DisplayRole) or ""
                     raw_labels.append(str(label))
-                    cat_val = "" if label in ("Other", lyr.name()) else label
+                    if idx < len(categories):
+                        value = categories[idx].value()
+                        cat_val = value if value is not None else ""
+                    else:
+                        cat_val = "" if label in ("Other", lyr.name()) else label
                     if cat_val not in present:
                         continue
                     key = _legend_entry_key(label)
@@ -1861,14 +1878,13 @@ def _fit_legend_layout(entry_lines_1col, entry_lines_2col,
 
 def _apply_legend_columns(legend, columns):
     """Lay the key out in *columns*, splitting a long layer's entries across
-    them. No-op for a single column, so the shipped one-column look is
-    untouched on every key that still fits in one."""
-    if columns <= 1:
-        return
+    them. Explicitly restore all column settings for a one-column key so a
+    reused/default QGIS legend cannot retain a compressed split layout."""
     try:
+        columns = max(1, int(columns))
         legend.setColumnCount(columns)
-        legend.setSplitLayer(True)
-        legend.setEqualColumnWidth(True)
+        legend.setSplitLayer(columns > 1)
+        legend.setEqualColumnWidth(columns > 1)
     except Exception:
         pass
 
