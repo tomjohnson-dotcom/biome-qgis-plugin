@@ -96,48 +96,92 @@ def _dir_has_zoomstack(d) -> bool:
     return False
 
 
-def _legacy_storage_dir():
-    """An older install's data folder holding the Zoomstack download — e.g. the
-    QGIS3 profile's when running under QGIS 4 — or None."""
+def _legacy_storage_dir(active_profile=None):
+    """Return Zoomstack data found in another QGIS profile, or ``None``.
+
+    Search every QGIS major-version/profile folder rather than assuming only
+    QGIS3 and QGIS4 or that the profile name stayed ``default``. The matching
+    profile name is preferred, followed by the most recently updated sources.
+    This keeps the ~12 GB download reusable across future QGIS upgrades.
+    """
     try:
-        prof = os.path.normpath(QgsApplication.qgisSettingsDirPath())
+        active = os.path.realpath(os.path.normpath(
+            active_profile or QgsApplication.qgisSettingsDirPath()))
+        profiles_dir = os.path.dirname(active)
+        active_version_dir = os.path.dirname(profiles_dir)
+        qgis_root = os.path.dirname(active_version_dir)
+        if os.path.basename(profiles_dir).lower() != "profiles":
+            return None
     except Exception:
         return None
-    parts = prof.split(os.sep)
-    for i, part in enumerate(parts):
-        if part not in ("QGIS3", "QGIS4"):
-            continue
-        for alt in ("QGIS3", "QGIS4"):
-            if alt == part:
+
+    source_profiles = []
+    try:
+        for version_name in os.listdir(qgis_root):
+            if not version_name.lower().startswith("qgis"):
                 continue
-            sib_prof = os.sep.join(parts[:i] + [alt] + parts[i + 1:])
-            # A custom folder recorded in that profile's settings first, then
-            # its default data folders (roavr_basemaps = pre-rename builds).
-            candidates = [_ini_zoomstack_dir(sib_prof)]
-            candidates += [os.path.join(sib_prof, n)
-                           for n in ("biome_basemaps", "roavr_basemaps")]
-            for d in candidates:
-                if d and _dir_has_zoomstack(d):
-                    return d
-        break
+            other_profiles = os.path.join(qgis_root, version_name, "profiles")
+            if not os.path.isdir(other_profiles):
+                continue
+            for profile_name in os.listdir(other_profiles):
+                profile = os.path.realpath(os.path.join(
+                    other_profiles, profile_name))
+                if profile == active or not os.path.isdir(profile):
+                    continue
+                ini = _profile_settings_ini(profile)
+                modified = (os.path.getmtime(ini) if ini and os.path.exists(ini)
+                            else 0)
+                same_name = profile_name.lower() == os.path.basename(active).lower()
+                source_profiles.append((not same_name, -modified, profile))
+    except Exception:
+        return None
+
+    for _different_name, _modified, profile in sorted(source_profiles):
+        # A custom folder recorded in that profile's settings first, then its
+        # standard and pre-rename locations. Very old builds briefly stored
+        # the data below the plugin itself, so include that path as a rescue.
+        candidates = [_ini_zoomstack_dir(profile)]
+        candidates += [os.path.join(profile, n)
+                       for n in ("biome_basemaps", "roavr_basemaps")]
+        candidates += [
+            os.path.join(profile, "python", "plugins", "biome", "biome_data"),
+            os.path.join(profile, "python", "plugins", "roavr_mapper",
+                         "biome_data"),
+        ]
+        for candidate in candidates:
+            if candidate and _dir_has_zoomstack(candidate):
+                return candidate
     return None
+
+
+def _profile_settings_ini(profile_dir):
+    """Return a profile's QGIS settings INI, including future major versions."""
+    qgis_dir = os.path.join(profile_dir, "QGIS")
+    if not os.path.isdir(qgis_dir):
+        return None
+    try:
+        candidates = sorted(
+            os.path.join(qgis_dir, name) for name in os.listdir(qgis_dir)
+            if name.lower().startswith("qgis") and name.lower().endswith(".ini"))
+        return candidates[-1] if candidates else None
+    except Exception:
+        return None
 
 
 def _ini_zoomstack_dir(profile_dir):
     """biome/zoomstack_dir from another profile's settings ini, or None."""
     import configparser
-    for ini_name in ("QGIS3.ini", "QGIS4.ini"):
-        ini = os.path.join(profile_dir, "QGIS", ini_name)
-        if not os.path.exists(ini):
-            continue
-        try:
-            cp = configparser.RawConfigParser()
-            cp.read(ini, encoding="utf-8")
-            val = cp.get("biome", "zoomstack_dir", fallback="")
-            if val:
-                return val
-        except Exception:
-            continue
+    ini = _profile_settings_ini(profile_dir)
+    if not ini:
+        return None
+    try:
+        cp = configparser.RawConfigParser()
+        cp.read(ini, encoding="utf-8")
+        val = cp.get("biome", "zoomstack_dir", fallback="")
+        if val:
+            return val
+    except Exception:
+        pass
     return None
 
 

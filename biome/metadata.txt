@@ -3,7 +3,7 @@ name=Biome
 qgisMinimumVersion=3.22
 qgisMaximumVersion=4.99
 description=Biome — BNG habitat mapping tool for QGIS
-version=2.5
+version=2.6
 author=Tom Johnson
 email=
 about=Biome is a comprehensive Biodiversity Net Gain (BNG) habitat mapping plugin for QGIS. Stylised EPSL species icons are derived from game-icons.net (Lorc, Delapouite) under CC BY 3.0.
@@ -34,6 +34,7 @@ icon=icon.png
 experimental=False
 deprecated=False
 changelog=
+    2.6 - Added safe first-run migration of Biome preferences between QGIS profiles, including API keys, custom features, report styling, branding, shortcuts and interface preferences. Offline OS Zoomstack data is now discovered and reused across differently named profiles and future QGIS major versions, avoiding unnecessary re-downloads.
     2.5 - Major workflow and documentation update:
         • Added complete baseline and proposed habitat workflows for area habitats, hedgerows, watercourses and individual trees, including linked retention, enhancement, creation and loss classifications
         • Added indicative BNG balances, trading checks, geometric gross-loss de minimis screening, missing-data checks, overlap warnings and unmapped-ground checks

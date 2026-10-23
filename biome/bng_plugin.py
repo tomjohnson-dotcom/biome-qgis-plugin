@@ -58,6 +58,15 @@ class BNGPlugin:
         self._app_quitting = False
 
     def initGui(self):
+        # On the first Biome run in a new QGIS profile, offer to bring across
+        # only Biome-owned preferences from an earlier profile. This runs
+        # before any first-run defaults are read or written.
+        try:
+            from .preference_migration import maybe_migrate
+            maybe_migrate(self.iface.mainWindow())
+        except Exception:
+            pass
+
         # TEMP (QGIS 4 shakedown): tee every Python error QGIS surfaces (it
         # routes them all through qgis.utils.showException) to biome_live.log
         # next to the plugin, so problems can be read live from outside QGIS.
@@ -136,6 +145,7 @@ class BNGPlugin:
         # preference yet) it enables itself. After that the user's explicit
         # on/off choice is remembered and respected.
         first_run = not biome_mode.is_set()
+        self._first_run_workspace_pending = first_run
         # setChecked BEFORE connecting toggled, so this doesn't fire enable().
         self.mode_action.setChecked(biome_mode.is_enabled() or first_run)
         self.mode_action.toggled.connect(self._on_biome_mode_toggled)
@@ -149,8 +159,14 @@ class BNGPlugin:
             _slog("startup: %s took %.1fs" % (label, _t.perf_counter() - t0))
         if first_run:
             # Defer past launch so the snapshot captures fully-loaded toolbars.
-            QTimer.singleShot(1200, lambda: _timed_mode_apply(
-                biome_mode.enable, "biome mode enable (app restyle)"))
+            # A fresh install should also make both parts of the Biome workspace
+            # discoverable: enable() shows the compact Layers panel. The main
+            # sidebar is opened by _startup_auto_open once QGIS's welcome UI is
+            # clear, avoiding any project scaffolding during launch.
+            def _enable_first_run_workspace():
+                _timed_mode_apply(
+                    biome_mode.enable, "biome mode enable (app restyle)")
+            QTimer.singleShot(1200, _enable_first_run_workspace)
         elif biome_mode.is_enabled():
             # Defer past launch so late-restored toolbars are swept too.
             QTimer.singleShot(1200, lambda: _timed_mode_apply(
@@ -1327,6 +1343,12 @@ class BNGPlugin:
             return
         from qgis.core import QgsProject
         if QgsProject.instance().fileName():
+            # On the very first install, show the requested sidebar even when
+            # QGIS restored a non-Biome project. Do not scaffold or alter that
+            # project; simply expose the dock.
+            if getattr(self, "_first_run_workspace_pending", False):
+                self._open_panel()
+                self._first_run_workspace_pending = False
             return
         welcome = self._welcome_widget()
         if welcome is not None:
@@ -1337,6 +1359,7 @@ class BNGPlugin:
                 pass
             return
         self._open_panel()
+        self._first_run_workspace_pending = False
         if self.panel is not None and \
                 not getattr(self.panel, "_project_initialised", False):
             try:
