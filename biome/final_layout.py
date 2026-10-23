@@ -101,6 +101,13 @@ def build(layout, project):
     legend.setBackgroundEnabled(False)
     legend.setTitle("")
     try:
+        # QGIS defaults differ between releases/profiles; some installations
+        # create a new legend with two columns.  Biome's normal layout is one
+        # column, and the exporter opts into two only when its height fitter
+        # proves that a long key needs it.
+        legend.setColumnCount(1)
+        legend.setSplitLayer(False)
+        legend.setEqualColumnWidth(False)
         legend.setSymbolWidth(7.0)
         legend.setSymbolHeight(4.5)
     except Exception:

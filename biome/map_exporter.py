@@ -1272,13 +1272,16 @@ def _build(iface, meta):
         # Apply the chosen tier + columns, then reflow the metadata block to
         # just below the (now-sized) legend.
         if panel is not None and _leg_tier is not None:
+            # Column state is independent of font/symbol styling. Apply it in
+            # its own guarded call so a version-specific styling API failure
+            # cannot leave QGIS's two-column default in place.
+            _apply_legend_columns(legend, _leg_cols)
             try:
                 _apply_habitat_legend_tier(legend, _leg_tier)
                 # Tree markers must keep their Small<Medium<Large size ratios
                 # under the tier's flat symbol-size cap.
                 _scale_marker_legend_patches(
                     legend, _HABITAT_LEGEND_TIERS[_leg_tier][4])
-                _apply_legend_columns(legend, _leg_cols)
                 panel_meta["legend_bottom_au"] = (
                     (_leg_ly_mm + _leg_est_h) * pr._U_PER_MM)
                 new_svg, _ = pr.render_panel(theme, panel_meta, plugin_dir)
