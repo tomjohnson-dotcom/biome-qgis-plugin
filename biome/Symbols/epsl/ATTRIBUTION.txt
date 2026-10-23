@@ -1,0 +1,36 @@
+EPSL stylised species icons
+===========================
+
+Game-icons.net artwork is licensed under Creative Commons Attribution 3.0:
+https://creativecommons.org/licenses/by/3.0/
+
+Sources used:
+  - Bat by Skoll, game-icons.net/1x1/skoll/bat.html
+  - Dolphin by Delapouite, adapted for Harbour porpoise,
+    game-icons.net/1x1/delapouite/dolphin.html
+  - Frog by Lorc, adapted for Natterjack toad
+  - Gecko by Lorc, adapted for Sand lizard
+  - Butterfly by Lorc, adapted for Marsh fritillary
+  - Sprout by Lorc, adapted for Plant
+
+The dormouse face is a simplified monochrome trace of the CC0 Mouse Face
+reference published by SVG Repo:
+https://www.svgrepo.com/svg/402178/mouse-face
+
+The full-body otter is adapted from the CC0 Otter Facing Right silhouette
+published by SVG Repo:
+https://www.svgrepo.com/svg/14227/otter-facing-right
+
+The water-vole mark is adapted from the Material Design Icons ``rodent``
+symbol by Pictogrammers, licensed under Apache 2.0 and distributed by Iconify.
+
+The crayfish mark is adapted from the Fluent Emoji High Contrast ``lobster``
+symbol by Microsoft, licensed under MIT and distributed by Iconify.
+
+The Great crested newt badge reuses Biome's established ecological-feature
+symbol. The mixed-reptile badge reuses the smooth-snake mark with a distinct
+colour. Remaining simplified silhouettes and the neutral fallback were drawn
+for Biome.
+
+All source artwork has been simplified, recoloured to white on a coloured
+badge, scaled, and re-centred for use as small QGIS map markers.

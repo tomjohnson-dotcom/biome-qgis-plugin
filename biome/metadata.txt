@@ -1,0 +1,59 @@
+[general]
+name=Biome
+qgisMinimumVersion=3.22
+qgisMaximumVersion=4.99
+description=Biome — BNG habitat mapping tool for QGIS
+version=2.5
+author=Tom Johnson
+email=
+about=Biome is a comprehensive Biodiversity Net Gain (BNG) habitat mapping plugin for QGIS. Stylised EPSL species icons are derived from game-icons.net (Lorc, Delapouite) under CC BY 3.0.
+
+    It supports the full statutory BNG workflow under Schedule 7A of the Environment Act 2021, including:
+
+    • Baseline and proposed habitat mapping — area habitats, hedgerows, watercourses and individual trees
+    • Automatic pairing of baseline and proposed features with retention/enhancement categories
+    • BNG unit balance summary (area, hedgerow, watercourse and tree units)
+    • De minimis check — geometric gross loss calculation against statutory thresholds (25 m² / 5 m)
+    • Overlap warning — the Layers panel flags habitat polygons that overlap within a layer (double-counted area)
+    • Feature Manager — view, edit, reshape, delete and restore features with a deleted feature bin
+    • Measurements tab — area/length labels, loss layer visualisation and quick measure sketches
+    • Desk Study tab — designated sites, priority habitats, ancient woodland, TPOs, GCN risk zones and LPA finder
+    • Final map export and blank statutory BNG metric export
+    • Feature Mapper for ecological features (ponds, PRF, fencing, bat boxes, etc.)
+    • Field survey import from CSV/spreadsheet
+    • Photo documentation tab
+
+    Data is stored in a GeoPackage alongside the QGIS project file. Requires a saved .qgz project to function.
+
+tracker=https://github.com/tomjohnson-dotcom/biome-qgis-plugin/issues
+repository=https://github.com/tomjohnson-dotcom/biome-qgis-plugin
+homepage=https://github.com/tomjohnson-dotcom/biome-qgis-plugin#readme
+hasProcessingProvider=no
+tags=biodiversity,BNG,habitat,ecology,net gain,statutory metric,environment act
+icon=icon.png
+experimental=False
+deprecated=False
+changelog=
+    2.5 - Major workflow and documentation update:
+        • Added complete baseline and proposed habitat workflows for area habitats, hedgerows, watercourses and individual trees, including linked retention, enhancement, creation and loss classifications
+        • Added indicative BNG balances, trading checks, geometric gross-loss de minimis screening, missing-data checks, overlap warnings and unmapped-ground checks
+        • Added Filled Metric export, habitat schedules and statutory-format condition-assessment exports
+        • Added overlap-safe drawing, polygon cutting, line trimming, reshaping, duplication, deleted-feature recovery and project-persistent undo and redo
+        • Added the Ecological Feature Mapper, Building & Tree Mapper, Site Plan Visualiser and expanded ecological symbol library
+        • Expanded the Plan, Elevation & Photo Annotator for marking up house side elevations, as well as plans and site photographs
+        • Added the Mobile Field Mapper and survey import workflow for habitats, condition assessments, ponds, trees, notes, features and geotagged photographs
+        • Expanded the Desk Study with designated sites, priority habitats, ancient woodland, SSSI Impact Risk Zones, protected-species licences, GCN risk zones, water bodies, TPOs, LPA resources and Scottish regional sources
+        • Added configurable Final Map layouts, Google Earth spotlight export and a self-contained 3D site viewer
+        • Updated the Georeferencer workflow around its principal use: aligning architects' plans with the mapped site; drone orthophotos and other imagery remain supported
+        • Added QGIS 4 and PyQt6 compatibility while retaining support for QGIS 3.22 and later
+        • Updated BNG guidance for the changes effective from 6 August 2026 and the NSIP commencement date of 2 November 2026
+        • Rewritten and expanded the illustrated user guide and README, with current workflows, rendered interface examples and troubleshooting guidance
+    1.7 - Biome Mode: optional app-wide moss & chalk restyle of QGIS (menu bar, dialogs, panels), hides all toolbars and the Browser/Layers panels; fully reversible with state snapshot, persists across sessions; wordmark added to panel footer
+    1.6 - Rebrand: plugin renamed to Biome with a new parcel-leaf icon drawn from the moss & chalk palette
+    1.4 - Typography overhaul: bundled Inter font (4 weights, OFL) for consistent legible text on all machines; larger base size (13px); higher-contrast labels
+    1.3 - Fix NameError on panel open: theme module is now imported at module scope so all screen builders can reach it
+    1.2 - Visual refresh: moss & chalk design system (theme.py), SVG icon set replacing emoji, flat header with accent line, restyled stat cards and status chips, screen fade transitions, host font no longer overridden
+    1.1 - Filled Metric export: statutory metric pre-filled from mapped habitats (A/B/C sheets), with habitat-name validation; preserves all workbook macros, buttons and charts
+    1.0 - First full release; all tabs and features complete
+    0.2 - Desk Study tab moved between Workflow and Summary; mobile view link button added; map buttons moved inside their respective constraint sections
+    0.1 - Initial release

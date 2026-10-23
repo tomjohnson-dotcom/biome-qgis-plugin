@@ -1,0 +1,16 @@
+{
+  "_comment": "User-curated corrections. Merged by _gen_council_maps_data.py with TOP precedence (beats the audit). TPO keys = lower-case council name; LNRS keys = exact Resp_Auth; downloads = {council: url}. Value = a finished record {platform,url,...} or \"none\" to force a council back onto the landing-page fallback.",
+  "tpo": {
+    "birmingham": {"platform": "static", "url": "https://maps.birmingham.gov.uk/webapps/brum/mybrummap/", "confidence": "high", "note": "User-provided: Birmingham MyBrumMap viewer (select the Tree Preservation Orders layer). Opened un-zoomed."},
+    "havering": {"platform": "static", "url": "https://havering.statmap.co.uk/map/Aurora.svc/run?script=%5CAurora%20Cloud%5CAuroraScripts%5CMain%20Aurora%20Web%20Site%20Scripts.AuroraScript%24&resize=always", "confidence": "medium", "note": "Full StatMap Aurora launch URL (bare /Aurora.svc/run does not load). Opens the map; select the TPO layer."},
+
+    "bromley": "none",
+    "ealing": "none",
+    "hounslow": "none",
+    "bournemouth christchurch and poole": "none",
+    "north kesteven": "none",
+    "blackburn with darwen": "none"
+  },
+  "lnrs": {},
+  "downloads": {}
+}

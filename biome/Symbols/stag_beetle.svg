@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="48" fill="#FFFFFF"/>
+  <circle cx="50" cy="50" r="48" fill="none" stroke="#C2620A" stroke-opacity="0.35" stroke-width="1.5"/>
+  <circle cx="50" cy="50" r="43" fill="#C2620A"/>
+
+  <!-- antler-like mandibles: big curved jaws hooking inward, with an inner tooth -->
+  <g stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M46 37 C40 28 33 22 35 15 C36 11 41 12 45 18"/>
+    <path d="M40 22 L45 24"/>
+    <path d="M54 37 C60 28 67 22 65 15 C64 11 59 12 55 18"/>
+    <path d="M60 22 L55 24"/>
+    <!-- antennae -->
+    <path d="M47 38 L43 33 L45 31" stroke-width="2"/>
+    <path d="M53 38 L57 33 L55 31" stroke-width="2"/>
+  </g>
+
+  <!-- head -->
+  <path d="M44 38 H56 L54 46 H46 Z" fill="#FFFFFF"/>
+  <!-- pronotum (thorax) -->
+  <rect x="39.5" y="46" width="21" height="11" rx="4.5" fill="#FFFFFF"/>
+  <!-- elytra (wing cases) with central seam -->
+  <ellipse cx="50" cy="69" rx="13.5" ry="15.5" fill="#FFFFFF"/>
+  <path d="M50 56 V83" stroke="#C2620A" stroke-width="2.4"/>
+
+  <!-- six legs -->
+  <g stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" fill="none">
+    <path d="M41 50 L29 45"/><path d="M40 57 L27 58"/><path d="M43 65 L32 72"/>
+    <path d="M59 50 L71 45"/><path d="M60 57 L73 58"/><path d="M57 65 L68 72"/>
+  </g>
+</svg>

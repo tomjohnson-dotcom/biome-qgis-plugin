@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/>
+<!-- user-scalable is deliberately allowed: pinching a photo or a criterion
+     list is a legitimate need, and blocking it fails WCAG 1.4.4. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Biome"/>
+<meta name="theme-color" content="#0E1712"/>
+<title>Biome Field Mapper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234E9B74'/%3E%3Cpath d='M9 23c1-7 4-11 12-13-1 10-5 13-12 13z' fill='%230B120E'/%3E%3C/svg%3E"/>
+<!--{{LEAFLET_HEAD}}-->
+<style>/*{{APP_CSS}}*/</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="crosshair"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v5M12 18v5M1 12h5M18 12h5"/></svg></div>
+
+<!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+<div id="topbar">
+  <div class="brand">
+    <div class="mark"><svg viewBox="0 0 24 24" id="brand-mark"></svg></div>
+    <div style="min-width:0">
+      <div class="site-name" id="site-name">Field Mapper</div>
+      <div class="site-sub" id="site-sub">Loading…</div>
+    </div>
+  </div>
+  <button id="gps-chip"><span class="dot"></span><span id="gps-acc">GPS</span></button>
+</div>
+
+<!-- ── Transient bars ──────────────────────────────────────────────────── -->
+<div class="action-bar" id="place-bar">
+  <div class="ab-text">
+    <div class="ab-title" id="place-bar-title">Tap the map to place</div>
+    <div class="ab-sub" id="place-bar-sub"></div>
+  </div>
+  <button class="ab-btn stop" id="place-bar-cancel">Cancel</button>
+</div>
+
+<div class="action-bar" id="draw-bar">
+  <div class="ab-text">
+    <div class="ab-title" id="draw-bar-title">Drawing</div>
+    <div class="ab-sub num" id="draw-bar-sub">0 points</div>
+  </div>
+  <button class="ab-btn" id="draw-here" title="Add a vertex at my GPS position">＋Here</button>
+  <button class="ab-btn" id="draw-undo">Undo</button>
+  <button class="ab-btn go" id="draw-finish">Finish</button>
+  <button class="ab-btn stop" id="draw-cancel">✕</button>
+</div>
+
+<!-- ── Map controls ────────────────────────────────────────────────────── -->
+<button class="map-ctl" id="theme-btn" title="Display mode"><svg viewBox="0 0 24 24" id="ic-theme"></svg></button>
+<button class="map-ctl" id="layers-btn" title="Basemap"><svg viewBox="0 0 24 24" id="ic-layers"></svg></button>
+<button class="map-ctl" id="gps-btn" title="My location"><svg viewBox="0 0 24 24" id="ic-target"></svg></button>
+<button id="fab"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add</span></button>
+
+<!-- ── Bottom toolbar ──────────────────────────────────────────────────── -->
+<div id="toolbar">
+  <button class="tool-btn active" id="tab-map"><svg viewBox="0 0 24 24" id="ic-map"></svg><span>Map</span></button>
+  <button class="tool-btn" id="tab-records"><svg viewBox="0 0 24 24" id="ic-list"></svg><span>Records</span><span class="badge" id="rec-badge"></span></button>
+  <button class="tool-btn" id="tab-export"><svg viewBox="0 0 24 24" id="ic-download"></svg><span>Finish</span></button>
+  <button class="tool-btn" id="tab-more"><svg viewBox="0 0 24 24" id="ic-settings"></svg><span>More</span></button>
+</div>
+
+<!-- ── Toast ───────────────────────────────────────────────────────────── -->
+<div id="toast"><span class="t-msg"></span><button id="toast-action" style="display:none"></button></div>
+
+<!-- ── Sheet ───────────────────────────────────────────────────────────── -->
+<div id="backdrop"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-grip"></div>
+  <div class="sheet-head">
+    <button class="back" id="sheet-back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <div class="sheet-title"><h2 id="sheet-title">—</h2><p id="sheet-sub"></p></div>
+    <button class="close" id="sheet-close">✕</button>
+  </div>
+  <div id="sheet-search" class="search-wrap" style="display:none">
+    <svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></svg>
+    <input class="search-input" id="sheet-search-input" type="search" placeholder="Search…"
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+    <button class="search-clear" id="sheet-search-clear">✕</button>
+  </div>
+  <div class="chip-row" id="sheet-chips" style="display:none"></div>
+  <div class="sheet-body" id="sheet-body"></div>
+  <div class="sheet-foot" id="sheet-foot" style="display:none"></div>
+</div>
+
+<input type="file" id="photo-input" accept="image/*" capture="environment" multiple style="display:none"/>
+
+<!--{{LEAFLET_BODY}}-->
+<script>const BIOME = /*{{PAYLOAD}}*/;</script>
+<script>/*{{CORE_JS}}*/</script>
+<script>/*{{APP_JS}}*/</script>
+</body>
+</html>

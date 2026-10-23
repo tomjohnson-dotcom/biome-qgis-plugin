@@ -1,0 +1,15 @@
+dist/
+__pycache__/
+*.py[cod]
+*.log
+*.bak
+*.orig
+*.tmp
+*.aux.xml
+scratch_*
+.claude/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
+

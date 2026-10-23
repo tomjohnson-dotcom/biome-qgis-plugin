@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugins>
+  <pyqgis_plugin name="Biome" version="2.5">
+    <description><![CDATA[Biome — BNG habitat mapping tool for QGIS]]></description>
+    <about><![CDATA[Biome is a comprehensive Biodiversity Net Gain (BNG) habitat mapping plugin for QGIS. Stylised EPSL species icons are derived from game-icons.net (Lorc, Delapouite) under CC BY 3.0.
+
+It supports the full statutory BNG workflow under Schedule 7A of the Environment Act 2021, including:
+
+• Baseline and proposed habitat mapping — area habitats, hedgerows, watercourses and individual trees
+• Automatic pairing of baseline and proposed features with retention/enhancement categories
+• BNG unit balance summary (area, hedgerow, watercourse and tree units)
+• De minimis check — geometric gross loss calculation against statutory thresholds (25 m² / 5 m)
+• Overlap warning — the Layers panel flags habitat polygons that overlap within a layer (double-counted area)
+• Feature Manager — view, edit, reshape, delete and restore features with a deleted feature bin
+• Measurements tab — area/length labels, loss layer visualisation and quick measure sketches
+• Desk Study tab — designated sites, priority habitats, ancient woodland, TPOs, GCN risk zones and LPA finder
+• Final map export and blank statutory BNG metric export
+• Feature Mapper for ecological features (ponds, PRF, fencing, bat boxes, etc.)
+• Field survey import from CSV/spreadsheet
+• Photo documentation tab
+
+Data is stored in a GeoPackage alongside the QGIS project file. Requires a saved .qgz project to function.]]></about>
+    <version>2.5</version>
+    <qgis_minimum_version>3.22</qgis_minimum_version>
+    <qgis_maximum_version>4.99</qgis_maximum_version>
+    <author_name>Tom Johnson</author_name>
+    <homepage>https://github.com/tomjohnson-dotcom/biome-qgis-plugin#readme</homepage>
+    <tracker>https://github.com/tomjohnson-dotcom/biome-qgis-plugin/issues</tracker>
+    <repository>https://github.com/tomjohnson-dotcom/biome-qgis-plugin</repository>
+    <icon>https://raw.githubusercontent.com/tomjohnson-dotcom/biome-qgis-plugin/main/biome/icon.png</icon>
+    <tags>biodiversity,BNG,habitat,ecology,net gain,statutory metric,environment act</tags>
+    <download_url>https://raw.githubusercontent.com/tomjohnson-dotcom/biome-qgis-plugin/main/releases/biome-2.5.zip</download_url>
+    <file_name>biome-2.5.zip</file_name>
+    <experimental>False</experimental>
+    <deprecated>False</deprecated>
+    <create_date>2026-10-23</create_date>
+    <update_date>2026-10-23</update_date>
+  </pyqgis_plugin>
+</plugins>

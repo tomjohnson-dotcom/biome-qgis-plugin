@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 100">
+  <defs>
+    <clipPath id="tile"><rect x="20" y="14" width="100" height="72" rx="8"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round">
+    <path d="M20 14 L60 14 L54 50 L20 58 Z" fill="#C3DCB8"/>
+    <path d="M60 14 L120 14 L120 40 L86 46 L54 50 Z" fill="#D9E7C8"/>
+    <path d="M20 58 L54 50 L86 46 L84 86 L20 86 Z" fill="#ABCBA2"/>
+    <path d="M86 46 L120 40 L120 86 L84 86 Z" fill="#E4EECF"/>
+  </g>
+  <g clip-path="url(#tile)">
+    <g transform="translate(34,58) scale(0.8)" fill="none" stroke="#1F4A37" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 21c.5 -4.5 2.5 -8 7 -10"/>
+      <path d="M9 18c6.218 0 10.5 -3.288 11 -12v-2h-4.014c-9 0 -11.986 4 -12 9c0 1 0 3 2 5h3l.014 0"/>
+    </g>
+    <g transform="translate(92,20) scale(0.7)" fill="#2F5D8A" fill-opacity="0.14" stroke="#2F5D8A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7.502 19.423c2.602 2.105 6.395 2.105 8.996 0c2.602 -2.105 3.262 -5.708 1.566 -8.546l-4.89 -7.26c-.42 -.625 -1.287 -.803 -1.936 -.397a1.376 1.376 0 0 0 -.41 .397l-4.893 7.26c-1.695 2.838 -1.035 6.441 1.567 8.546"/>
+    </g>
+  </g>
+  <rect x="20" y="14" width="100" height="72" rx="8" fill="none" stroke="#C9D1C9" stroke-width="2"/>
+</svg>

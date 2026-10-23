@@ -1,0 +1,25 @@
+<!--
+tags: [weather, cloud, sun, forecast, conditions, survey]
+category: Weather
+version: "1.0"
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="8" cy="7.5" r="2.6" />
+  <line x1="8" y1="2" x2="8" y2="3.1" />
+  <line x1="3.1" y1="7.5" x2="4.2" y2="7.5" />
+  <line x1="4.2" y1="3.7" x2="5" y2="4.5" />
+  <line x1="11.8" y1="3.7" x2="11" y2="4.5" />
+  <g transform="translate(3.4,5.6) scale(0.8)">
+    <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0 -10z" />
+  </g>
+</svg>
