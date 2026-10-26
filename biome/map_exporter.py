@@ -3300,7 +3300,11 @@ def _add_pond_list_label(layout, leg_rect, top_mm, limit_mm, theme,
     def _line_h(pt):
         # Compact leading preserves room for two-line assessment entries
         # without forcing the text down to an unreadably small point size.
-        return pt * 0.3528 * 1.05
+        # QGIS/Qt can render a slightly taller line box than the nominal font
+        # height, particularly in PDF exports.  The previous 1.05 multiplier
+        # clipped the final SWB row, so retain normal readable leading and let
+        # the fitter switch to two columns sooner when necessary.
+        return pt * 0.3528 * 1.20
 
     # Assessment lists are grouped by outcome. Each group uses a bold heading
     # and one or more regular lines of pond IDs; HSI groups also show the
@@ -3478,7 +3482,9 @@ def _add_pond_list_label(layout, leg_rect, top_mm, limit_mm, theme,
         layout.addLayoutItem(lab)
         _mm = QgsUnitTypes.LayoutUnit.LayoutMillimeters
         lab.attemptMove(QgsLayoutPoint(lx + 1.0 + c * col_w, top, _mm))
-        h = sum(text.count("\n") + 1 for text in chunk) * _line_h(pt) + 1.0
+        # Include a full lower safety margin: QgsLayoutItemLabel otherwise
+        # clips the descenders/baseline of the final row on some QGIS builds.
+        h = sum(text.count("\n") + 1 for text in chunk) * _line_h(pt) + 2.0
         lab.attemptResize(QgsLayoutSize(col_w - 2.0, h, _mm))
         bottom = max(bottom, top + h)
     return bottom

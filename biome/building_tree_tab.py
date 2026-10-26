@@ -415,19 +415,21 @@ class BuildingTreeMixin:
 
         a_body.addWidget(_avail_btn(
             "Detect from proposal", "map-search", self._bt_detect_availability,
-            "Scan the proposed habitats: sealed and built land becomes "
-            "developed — unavailable for enhancement. If the proposal has "
+            "Scan the proposed habitats: sealed and built land is marked "
+            "unavailable, and the remaining area inside the redline is "
+            "highlighted as available for enhancement. If the proposal has "
             "garden parcels you'll be asked whether they count as residential "
-            "curtilage. Re-run any time; previous detections are replaced."))
+            "curtilage. Re-run any time; previous results are replaced."))
         a_body.addWidget(_avail_btn(
             "Fill remainder as available", "leaf", self._bt_fill_available,
             "Re-detect the proposal's developed land (and gardens, if you say "
             "they're curtilage), then mark everything else inside the redline "
             "as available for enhancement. Re-run any time; previous results "
             "are replaced."))
-        a_hint = QLabel("Fill re-detects the proposal first, so one click "
-                        "gives the full picture. You'll be asked whether "
-                        "garden areas count as curtilage.")
+        a_hint = QLabel("Detect shows the full picture: unavailable proposal "
+                        "areas and the available remainder. Use Fill remainder "
+                        "to refresh the available area after drawing curtilage "
+                        "manually.")
         a_hint.setWordWrap(True)
         a_hint.setStyleSheet("color:%s; font-size:10px; background:transparent; border:none;" % theme.FAINT)
         a_body.addWidget(a_hint)
@@ -1873,13 +1875,21 @@ class BuildingTreeMixin:
         return ans
 
     def _bt_detect_availability(self):
-        """Scan the proposed habitats: sealed/built → developed, and gardens →
-        curtilage when the user says so (popup). Re-runnable; each run
-        replaces the previous detection and registers as ONE global-undo
-        entry."""
+        """Scan the proposal and show both unavailable parcels and the
+        available remainder inside the redline. Re-runnable; each run replaces
+        the previous result and registers as one global-undo entry."""
         from .curtilage_mapper import (
-            detect_from_proposal, get_or_create_availability_layer, has_autofill)
+            detect_from_proposal, fill_remainder,
+            get_or_create_availability_layer)
         self._bt_finish()      # stop any armed placement tool first
+        rg = self._get_redline_geom()
+        if rg is None:
+            self.iface.messageBar().pushMessage(
+                "Buildings & Trees Visualiser",
+                "Draw the redline boundary first — it defines the area "
+                "available for enhancement.",
+                level=Qgis.MessageLevel.Warning, duration=4)
+            return
         res = detect_from_proposal(self._bt_ask_gardens_curtilage())
         if res is None:
             self.iface.messageBar().pushMessage(
@@ -1889,13 +1899,16 @@ class BuildingTreeMixin:
             return
         removed, added, n_curt, n_dev = res
         lyr = get_or_create_availability_layer()
-        if removed:
-            # The old detected features are gone — purge their undo entries so
-            # they don't linger as click-burning duds.
-            self.drop_undo_entries([(lyr, fid) for fid in removed])
-        if added:
-            self.push_undo(lyr, added[0], None, None,
-                           extra_baseline_fids=added[1:])
+        fill_removed, fill_added, ha = fill_remainder(rg)
+        all_removed = list(removed) + list(fill_removed)
+        all_added = list(added) + list(fill_added)
+        if all_removed:
+            # Old detected/fill features are gone — purge their undo entries
+            # so they do not linger as click-burning duds.
+            self.drop_undo_entries([(lyr, fid) for fid in all_removed])
+        if all_added:
+            self.push_undo(lyr, all_added[0], None, None,
+                           extra_baseline_fids=all_added[1:])
         self.iface.mapCanvas().refresh()
         self._bt_update_counts()
         if n_curt or n_dev:
@@ -1907,10 +1920,11 @@ class BuildingTreeMixin:
                 parts.append("%d garden parcel%s as curtilage"
                              % (n_curt, "" if n_curt == 1 else "s"))
             msg = "Detected " + " and ".join(parts)
-            if has_autofill():
-                msg += " — re-run Fill remainder to update the available area"
         else:
             msg = "No developed land found in the proposal"
+        msg += (" · %.2f ha available for enhancement" % ha
+                if fill_added else
+                " · no area remains available inside the redline")
         self.iface.messageBar().pushMessage(
             "Buildings & Trees Visualiser", msg, level=Qgis.MessageLevel.Info, duration=4)
 
