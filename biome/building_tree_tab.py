@@ -5,7 +5,7 @@
 from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
     QScrollArea, QDialog, QMessageBox)
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QCursor
+from qgis.PyQt.QtGui import QColor, QCursor
 from qgis.core import Qgis
 from . import theme
 
@@ -15,7 +15,7 @@ from .panel_map_tools import _TreePlaceTool
 
 class BuildingTreeMixin:
     def _open_building_tree_mapper(self):
-        """Build and navigate to the Site Plan Visualiser screen.
+        """Build and navigate to the Buildings & Trees Visualiser screen.
         Always returns to home on Back."""
         screen = self._build_building_tree_screen()
         # Remembered so go_back can recognise this screen and stop any armed
@@ -28,9 +28,9 @@ class BuildingTreeMixin:
         self.stack.addWidget(screen)
         self.stack.setCurrentIndex(0)
         self._screen_history.clear()
-        self._navigate_to(self.stack.count() - 1, "Site Plan Visualiser")
+        self._navigate_to(self.stack.count() - 1, "Buildings & Trees Visualiser")
 
-    # Building & Tree Mapper palette — building brown, tree green, theme greens.
+    # Buildings & Trees Visualiser palette — building brown, tree green.
     _BT_BROWN = "#5d4037"
     # Enhancement-availability accent — terracotta, matches the curtilage hatch.
     _BT_TERRA = "#B4552D"
@@ -57,16 +57,24 @@ class BuildingTreeMixin:
         layout.setSpacing(9)
 
         # ── local builders (kept in-method, mirroring the home screen) ──────
+        def _mixed_colour(base_colour, accent_colour, accent_weight):
+            """Return a theme-aware, gently tinted opaque colour for QSS."""
+            base = QColor(base_colour)
+            accent = QColor(accent_colour)
+            weight = max(0.0, min(1.0, float(accent_weight)))
+            return QColor(
+                round(base.red() * (1.0 - weight) + accent.red() * weight),
+                round(base.green() * (1.0 - weight) + accent.green() * weight),
+                round(base.blue() * (1.0 - weight) + accent.blue() * weight),
+            ).name()
+
         def _card(title, dot_color):
-            # Match Manage's section treatment: one softly tinted group owns
-            # its rows, instead of a grey title strip above a white bordered box.
-            palettes = {
-                BROWN: ("#F7F2F0", "#E6D8D2"),
-                GREEN: ("#EEF7F2", "#CEE3D6"),
-                TERRA: ("#FFF3ED", "#EED7CB"),
-                DARK:  ("#F0F5F2", "#D3E0D8"),
-            }
-            tint, edge = palettes.get(dot_color, ("#F3F6F3", "#D8E0DA"))
+            # A restrained tint separates the modules while the controls stay
+            # on the same neutral surface and retain a consistent hierarchy.
+            tint_weight = 0.10 if theme.is_dark() else 0.055
+            edge_weight = 0.18 if theme.is_dark() else 0.11
+            tint = _mixed_colour(theme.CARD, dot_color, tint_weight)
+            edge = _mixed_colour(theme.BORDER, dot_color, edge_weight)
             card = QWidget()
             card.setStyleSheet(
                 "background:%s; border:1px solid %s; border-radius:10px;"
@@ -76,7 +84,7 @@ class BuildingTreeMixin:
             hdr.setStyleSheet(
                 "background:transparent; border:none; border-top-left-radius:10px;"
                 " border-top-right-radius:10px;")
-            hl = QHBoxLayout(hdr); hl.setContentsMargins(11, 10, 11, 4); hl.setSpacing(7)
+            hl = QHBoxLayout(hdr); hl.setContentsMargins(12, 11, 12, 7); hl.setSpacing(7)
             dot = QLabel(); dot.setFixedSize(9, 9)
             dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             dot.setStyleSheet("background:transparent; border:none;")
@@ -88,35 +96,35 @@ class BuildingTreeMixin:
                 " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif;" % dot_color)
             hl.addWidget(dot); hl.addWidget(lbl); hl.addStretch()
             sep = QFrame(); sep.setFixedHeight(1)
-            sep.setStyleSheet("background:transparent; border:none;")
-            body = QVBoxLayout(); body.setContentsMargins(10, 6, 10, 10); body.setSpacing(8)
+            sep.setStyleSheet("background:%s; border:none;" % theme.BORDER)
+            body = QVBoxLayout(); body.setContentsMargins(12, 10, 12, 12); body.setSpacing(9)
             holder = QWidget(); holder.setStyleSheet("background:transparent; border:none;")
             holder.setLayout(body)
             cvl.addWidget(hdr); cvl.addWidget(sep); cvl.addWidget(holder)
             return card, body
 
         def _action_btn(label, icon_name, color, cb):
-            """Checkable card button: centred SVG icon + label in `color`, which
-            gains a quiet selected state while active."""
+            """A consistent green primary action, regardless of its section."""
             btn = QPushButton(); btn.setCheckable(True)
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); btn.setMinimumHeight(42)
             btn.setStyleSheet(
-                "QPushButton { background:rgba(255,255,255,0.72); border:1px solid rgba(74,96,82,0.14); border-radius:9px; }"
-                "QPushButton:hover:!checked { background:rgba(255,255,255,0.95); border-color:rgba(74,96,82,0.28); }"
+                "QPushButton { background:%s; border:1px solid %s; border-radius:9px; }"
+                "QPushButton:hover:!checked { background:%s; }"
                 "QPushButton:checked { background:%s; border:2px solid %s; }"
-                % (theme.ACCENT_SOFT, color))
+                % (theme.ACCENT, theme.ACCENT_DARK, theme.ACCENT_DARK,
+                   theme.ACCENT_DARK, theme.LICHEN))
             row = QHBoxLayout(btn); row.setContentsMargins(12, 6, 12, 6); row.setSpacing(9)
             ico = QLabel(); ico.setFixedSize(18, 18)
             ico.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             ico.setStyleSheet("background:transparent; border:none;")
-            ico.setPixmap(_svg_pixmap(icon_name, color, 18))
+            ico.setPixmap(_svg_pixmap(icon_name, "white", 18))
             tcss = ("font-size:12px; font-weight:600; background:transparent; border:none;"
                     " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; color:%s;")
             txt = QLabel(label); txt.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            txt.setStyleSheet(tcss % color)
+            txt.setStyleSheet(tcss % "white")
             row.addStretch(); row.addWidget(ico); row.addWidget(txt); row.addStretch()
             btn._ico = ico; btn._txt = txt; btn._icon_name = icon_name
-            btn._color = color; btn._tcss = tcss
+            btn._color = "white"; btn._tcss = tcss
             def _sync(checked, b=btn):
                 col = b._color
                 b._ico.setPixmap(_svg_pixmap(b._icon_name, col, 18))
@@ -126,6 +134,26 @@ class BuildingTreeMixin:
             btn.toggled.connect(cb)
             return btn
 
+        def _secondary_btn(label, icon_name, icon_color, cb, tooltip=""):
+            """Shared neutral treatment for equivalent supporting actions."""
+            btn = QPushButton("  " + label)
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setMinimumHeight(38)
+            btn.setIcon(_svg_icon(icon_name, icon_color, 15))
+            btn.setIconSize(QSize(15, 15))
+            btn.setStyleSheet(
+                "QPushButton { background:%s; color:%s; border:1px solid %s;"
+                " border-radius:8px; font-size:11.5px; font-weight:500;"
+                " padding:6px 10px;"
+                " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; }"
+                "QPushButton:hover { background:%s; border-color:%s; }"
+                % (theme.CARD, theme.INK, theme.BORDER_STRONG,
+                   theme.ACCENT_SOFT, theme.ACCENT))
+            if tooltip:
+                btn.setToolTip(tooltip)
+            btn.clicked.connect(cb)
+            return btn
+
         def _seg_btn(label, icon_name, mode):
             b = QPushButton(label); b.setCheckable(True)
             b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); b.setMinimumHeight(30)
@@ -133,9 +161,9 @@ class BuildingTreeMixin:
                 "QPushButton { background:transparent; border:none; border-radius:7px;"
                 " color:%s; font-size:11px; font-weight:600; padding:4px 6px;"
                 " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; }"
-                "QPushButton:checked { background:rgba(255,255,255,0.88); color:%s; }"
-                % (theme.FAINT, BROWN))
-            b.setIcon(_svg_icon(icon_name, theme.FAINT, 14, on_color=BROWN))
+                "QPushButton:checked { background:%s; color:%s; }"
+                % (theme.FAINT, theme.ACCENT_SOFT, theme.ACCENT_DARK))
+            b.setIcon(_svg_icon(icon_name, theme.FAINT, 14, on_color=theme.ACCENT_DARK))
             b.setIconSize(QSize(14, 14))
             b.clicked.connect(lambda _=False, m=mode: self._bt_set_mode(m))
             return b
@@ -243,9 +271,10 @@ class BuildingTreeMixin:
         b_card, b_body = _card("BUILDINGS · B1, B2, B3 …", BROWN)
         seg = QWidget()
         seg.setStyleSheet(
-            "background:rgba(255,255,255,0.45); border:none; border-radius:9px;")
+            "background:%s; border:1px solid %s; border-radius:9px;"
+            % (theme.SUNKEN, theme.BORDER))
         sl = QHBoxLayout(seg); sl.setContentsMargins(3, 3, 3, 3); sl.setSpacing(3)
-        self._bt_seg_free  = _seg_btn("Freehand", "polygon", "freehand")
+        self._bt_seg_free  = _seg_btn("Plot corners", "polygon", "freehand")
         self._bt_seg_shape = _seg_btn("Fixed shape", "circle-dashed", "shape")
         sl.addWidget(self._bt_seg_free); sl.addWidget(self._bt_seg_shape)
         b_body.addWidget(seg)
@@ -261,6 +290,14 @@ class BuildingTreeMixin:
 
         self._bt_build_btn = _action_btn("Draw building", "polygon", BROWN, self._bt_building_action)
         b_body.addWidget(self._bt_build_btn)
+
+        manage_buildings_btn = _secondary_btn(
+            "Manage buildings…", "settings", BROWN,
+            self._bt_manage_buildings,
+            "Rename, select, add or remove individual mapped buildings")
+        self._bt_manage_buildings_btn = manage_buildings_btn
+        b_body.addWidget(manage_buildings_btn)
+
         b_row, self._bt_b_count, self._bt_undo_b_btn, self._bt_clear_b_btn = _footer(
             self._bt_undo_building, self._bt_clear_buildings)
         b_body.addLayout(b_row)
@@ -270,39 +307,16 @@ class BuildingTreeMixin:
         t_card, t_body = _card("TREES · T1, T2, T3 …", GREEN)
         self._bt_tree_btn = _action_btn("Place trees", "tree", GREEN, self._bt_place_trees)
         t_body.addWidget(self._bt_tree_btn)
-        t_hint = QLabel("Click to drop trees one after another; right-click when finished.")
-        t_hint.setWordWrap(True)
-        t_hint.setStyleSheet("color:%s; font-size:10px; background:transparent; border:none;" % theme.FAINT)
-        t_body.addWidget(t_hint)
-
-        imp_btn = QPushButton("  Import trees from CSV…")
-        imp_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); imp_btn.setMinimumHeight(32)
-        imp_btn.setIcon(_svg_icon("table", GREEN, 15)); imp_btn.setIconSize(QSize(15, 15))
-        imp_btn.setStyleSheet(
-            "QPushButton { background:transparent; color:%s; border:none; border-radius:8px;"
-            " font-size:11.5px; font-weight:500; padding:6px 10px;"
-            " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; }"
-            "QPushButton:hover { background:rgba(255,255,255,0.72); }"
-            % GREEN)
-        imp_btn.setToolTip("Place trees from a spreadsheet of coordinates — "
-                           "eastings/northings, lat/lon or grid references, auto-detected")
-        imp_btn.clicked.connect(self._bt_import_trees_csv)
+        imp_btn = _secondary_btn(
+            "Import trees from CSV…", "table", GREEN,
+            self._bt_import_trees_csv,
+            "Place trees from a spreadsheet of coordinates — eastings/northings, "
+            "lat/lon or grid references, auto-detected")
         t_body.addWidget(imp_btn)
 
-        manage_btn = QPushButton("  Manage trees…")
-        manage_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        manage_btn.setMinimumHeight(32)
-        manage_btn.setIcon(_svg_icon("settings", GREEN, 15))
-        manage_btn.setIconSize(QSize(15, 15))
-        manage_btn.setStyleSheet(
-            "QPushButton { background:transparent; color:%s; border:none; border-radius:8px;"
-            " font-size:11.5px; font-weight:500; padding:6px 10px;"
-            " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; }"
-            "QPushButton:hover { background:rgba(255,255,255,0.72); }"
-            % GREEN)
-        manage_btn.setToolTip(
+        manage_btn = _secondary_btn(
+            "Manage trees…", "settings", GREEN, self._bt_manage_trees,
             "Mark mapped trees as retained or removed and set individual buffer distances")
-        manage_btn.clicked.connect(self._bt_manage_trees)
         self._bt_manage_trees_btn = manage_btn
         t_body.addWidget(manage_btn)
 
@@ -397,19 +411,7 @@ class BuildingTreeMixin:
         a_body.addWidget(self._bt_curt_btn)
 
         def _avail_btn(label, icon_name, cb, tip):
-            b = QPushButton("  " + label)
-            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            b.setMinimumHeight(32)
-            b.setIcon(_svg_icon(icon_name, TERRA, 15)); b.setIconSize(QSize(15, 15))
-            b.setStyleSheet(
-                "QPushButton { background:transparent; color:%s; border:none; border-radius:8px;"
-                " font-size:11.5px; font-weight:500; padding:6px 10px;"
-                " font-family:'Inter SemiBold','Inter','Segoe UI',sans-serif; }"
-                "QPushButton:hover { background:rgba(255,255,255,0.72); }"
-                % TERRA)
-            b.setToolTip(tip)
-            b.clicked.connect(cb)
-            return b
+            return _secondary_btn(label, icon_name, TERRA, cb, tip)
 
         a_body.addWidget(_avail_btn(
             "Detect from proposal", "map-search", self._bt_detect_availability,
@@ -442,20 +444,6 @@ class BuildingTreeMixin:
         a_row.insertWidget(1, self._bt_a_area)
         a_body.addLayout(a_row)
         layout.addWidget(a_card)
-
-        # ── Maps card ──────────────────────────────────────────────────────
-        m_card, m_body = _card("MAPS", DARK)
-        m_body.setSpacing(2)
-        m_body.addWidget(_map_row("Building & tree map", "buildings and trees together",
-                                  lambda: self._create_bt_map("Building & Tree Map")))
-        m_body.addWidget(_map_row("Building map", "each building colour in the key",
-                                  lambda: self._create_bt_map("Building Map")))
-        m_body.addWidget(_map_row("Tree map", "trees labelled T1, T2 …",
-                                  lambda: self._create_bt_map("Tree Map")))
-        m_body.addWidget(_map_row("Enhancement availability map",
-                                  "curtilage & developed vs available",
-                                  lambda: self._create_bt_map("Enhancement Availability Map")))
-        layout.addWidget(m_card)
 
         layout.addStretch()
         container.setLayout(layout)
@@ -910,7 +898,7 @@ class BuildingTreeMixin:
             self.push_undo(lyr, max(new_fids), None, None)
         self.iface.mapCanvas().refresh()
         self.iface.messageBar().pushMessage(
-            "Site Plan Visualiser", f"{bid} placed", level=Qgis.MessageLevel.Info, duration=2
+            "Buildings & Trees Visualiser", f"{bid} placed", level=Qgis.MessageLevel.Info, duration=2
         )
 
     def _bt_start_shape(self):
@@ -936,7 +924,7 @@ class BuildingTreeMixin:
             canvas.refresh()
             self._bt_update_counts()
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser", f"{bid} placed", level=Qgis.MessageLevel.Info, duration=2
+                "Buildings & Trees Visualiser", f"{bid} placed", level=Qgis.MessageLevel.Info, duration=2
             )
 
         self._bt_shape_tool = _HabitatShapeTool(
@@ -964,6 +952,458 @@ class BuildingTreeMixin:
         self._bt_tree_btn.setText("Finish placing trees")
         self._bt_show_banner(
             "Click to place trees (T1, T2 …). Right-click or Esc to finish.")
+
+    def _bt_manage_buildings(self):
+        """Rename, select, add and remove individual mapped buildings."""
+        from qgis.core import QgsDistanceArea, QgsProject, QgsUnitTypes
+        from qgis.PyQt.QtCore import QTimer, QSize
+        from qgis.PyQt.QtGui import QColor, QIcon, QPixmap
+        from qgis.PyQt.QtWidgets import (
+            QAbstractItemView, QColorDialog, QHeaderView, QLineEdit,
+            QStyledItemDelegate, QTableWidget, QTableWidgetItem,
+        )
+        from qgis.gui import QgsHighlight
+        from .building_tree_mapper import (
+            BUILDING_LAYER_NAME, _id_sort_key, get_or_create_building_layer,
+            update_building_management,
+        )
+
+        self._bt_finish()
+        lyr = get_or_create_building_layer()
+        layer_id = lyr.id()
+
+        def _live_layer():
+            """Resolve the layer afresh in case QGIS replaced its wrapper."""
+            project = QgsProject.instance()
+            current = project.mapLayer(layer_id)
+            if current is not None:
+                return current
+            layers = project.mapLayersByName(BUILDING_LAYER_NAME)
+            return layers[0] if layers else None
+
+        features = sorted(
+            list(lyr.getFeatures()),
+            key=lambda feature: _id_sort_key(str(feature["building_id"] or "")),
+        )
+
+        class _BuildingDialog(QDialog):
+            """Dialog whose Cancel, Escape and window-close paths can confirm."""
+
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.close_request = None
+
+            def reject(self):
+                if self.close_request is not None and not self.close_request():
+                    return
+                super().reject()
+
+            def closeEvent(self, event):
+                if self.close_request is not None and not self.close_request():
+                    event.ignore()
+                    return
+                event.accept()
+
+        dlg = _BuildingDialog(self)
+        dlg.setWindowTitle("Manage buildings")
+        dlg.setMinimumWidth(620)
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(9)
+
+        intro = QLabel(
+            "Edit a building reference directly. Select one building and use the "
+            "up or down chevron to change the order and renumber all buildings as "
+            "B1, B2, B3 … . In a name such as ‘B3 Main House’, only the B-number "
+            "changes; a name without a B-number prefix is retained unchanged. "
+            "Click a colour swatch to restyle that building. Valid changes appear "
+            "on the map immediately; Cancel restores the original references and "
+            "colours. Select one or more rows to highlight those buildings on the "
+            "map or remove them individually.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:%s; font-size:11px;" % theme.MUTED)
+        root.addWidget(intro)
+
+        row_fids = []
+        removed_fids = set()
+        original_order = [feat.id() for feat in features]
+        original_labels = {
+            feat.id(): str(feat["building_label"] or feat["building_id"] or "")
+            for feat in features
+        }
+        original_colours = {
+            feat.id(): str(feat["colour"] or "#808080") for feat in features
+        }
+        dialog_state = {"applied": False}
+        map_highlights = []
+
+        class _BuildingNameDelegate(QStyledItemDelegate):
+            """Start name editing at the end without selecting old text."""
+
+            def createEditor(self, parent, option, index):
+                editor = QLineEdit(parent)
+                editor.setMaxLength(120)
+                return editor
+
+            def setEditorData(self, editor, index):
+                editor.setText(str(index.data() or ""))
+                # QAbstractItemView may select the whole value immediately
+                # after setEditorData. Defer the cursor placement until that
+                # initialisation has completed so typing appends by default.
+                def _place_cursor():
+                    editor.setCursorPosition(len(editor.text()))
+                    editor.deselect()
+                QTimer.singleShot(0, _place_cursor)
+                if not editor.property("biome_live_sync"):
+                    item = table.item(index.row(), index.column())
+                    editor.textEdited.connect(
+                        lambda text, cell=item: cell.setText(text)
+                        if cell is not None else None)
+                    editor.setProperty("biome_live_sync", True)
+
+        table = QTableWidget(len(features), 3)
+        table.setHorizontalHeaderLabels(
+            ["Building reference", "Colour", "Area (m²)"])
+        table.setStyleSheet(
+            "QTableWidget { gridline-color:%s; }"
+            "QTableWidget::item { padding:6px 9px; }"
+            "QHeaderView::section { padding:7px 9px; }" % theme.BORDER)
+        table.verticalHeader().setDefaultSectionSize(36)
+        table.horizontalHeader().setMinimumHeight(36)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # Editing is opened explicitly by _cell_clicked below. In particular,
+        # EditKeyPressed must remain off: Qt implements it by replacing the
+        # existing value with the first typed character.
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setItemDelegateForColumn(0, _BuildingNameDelegate(table))
+        table.setIconSize(QSize(54, 20))
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents)
+        area_calc = QgsDistanceArea()
+        area_calc.setSourceCrs(lyr.crs(), QgsProject.instance().transformContext())
+        from .config import measurement_ellipsoid
+        area_calc.setEllipsoid(measurement_ellipsoid())
+
+        def _swatch_icon(colour):
+            pixmap = QPixmap(54, 20)
+            pixmap.fill(colour)
+            return QIcon(pixmap)
+
+        for row, feat in enumerate(features):
+            row_fids.append(feat.id())
+            item = QTableWidgetItem(
+                str(feat["building_label"] or feat["building_id"] or ""))
+            item.setTextAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            table.setItem(row, 0, item)
+            colour = QColor(str(feat["colour"] or "#808080"))
+            if not colour.isValid():
+                colour = QColor("#808080")
+            colour_item = QTableWidgetItem()
+            colour_item.setData(Qt.ItemDataRole.UserRole, colour.name())
+            colour_item.setIcon(_swatch_icon(colour))
+            colour_item.setToolTip("Click to change this building's colour")
+            colour_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            colour_item.setFlags(
+                colour_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row, 1, colour_item)
+            area = area_calc.convertAreaMeasurement(
+                area_calc.measureArea(feat.geometry()),
+                QgsUnitTypes.AreaUnit.AreaSquareMeters)
+            area_item = QTableWidgetItem("{:,.1f}".format(area))
+            area_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+            area_item.setFlags(
+                area_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row, 2, area_item)
+        table.setMinimumHeight(220)
+        root.addWidget(table, 1)
+
+        def _selected_rows():
+            return sorted(
+                {index.row() for index in table.selectionModel().selectedRows()})
+
+        def _sync_map_selection():
+            while map_highlights:
+                highlight = map_highlights.pop()
+                try:
+                    highlight.hide()
+                    highlight.deleteLater()
+                except RuntimeError:
+                    pass
+            current = _live_layer()
+            if current is None:
+                return
+            current.removeSelection()
+            canvas = self.iface.mapCanvas()
+            outline = QColor(theme.ACCENT)
+            transparent = QColor(outline)
+            transparent.setAlpha(0)
+            for row in _selected_rows():
+                feature = current.getFeature(row_fids[row])
+                if not feature.isValid() or feature.geometry().isEmpty():
+                    continue
+                highlight = QgsHighlight(
+                    canvas, feature.geometry(), current)
+                highlight.setColor(outline)
+                highlight.setFillColor(transparent)
+                highlight.setWidth(2.5)
+                highlight.show()
+                map_highlights.append(highlight)
+            self.iface.mapCanvas().refresh()
+
+        def _preview_buildings():
+            """Apply complete, valid table labels/colours to the live map."""
+            labels = []
+            changes = {}
+            colours = {}
+            for row, fid in enumerate(row_fids):
+                item = table.item(row, 0)
+                label = str(item.text() if item is not None else "").strip()
+                folded = label.casefold()
+                if not label or folded in labels:
+                    return
+                labels.append(folded)
+                changes[fid] = label
+                colours[fid] = str(
+                    table.item(row, 1).data(Qt.ItemDataRole.UserRole))
+            if update_building_management(
+                    changes, colour_changes=colours):
+                self.iface.mapCanvas().refresh()
+
+        def _choose_colour(row):
+            item = table.item(row, 1)
+            current = QColor(str(item.data(Qt.ItemDataRole.UserRole)))
+            chosen = QColorDialog.getColor(
+                current, dlg, "Choose building colour")
+            if not chosen.isValid():
+                return
+            colour = chosen.name()
+            table.blockSignals(True)
+            item.setData(Qt.ItemDataRole.UserRole, colour)
+            item.setIcon(_swatch_icon(chosen))
+            table.blockSignals(False)
+            _preview_buildings()
+
+        def _remove_selected():
+            table.blockSignals(True)
+            for row in reversed(_selected_rows()):
+                removed_fids.add(row_fids.pop(row))
+                table.removeRow(row)
+            table.blockSignals(False)
+            _update_move_buttons()
+
+        controls = QHBoxLayout()
+        add_btn = QPushButton("Add building")
+        add_btn.setIcon(_svg_icon("plus", self._BT_BROWN, 14))
+        add_btn.setIconSize(QSize(14, 14))
+        remove_btn = QPushButton("Remove selected")
+        remove_btn.setIcon(_svg_icon("trash", theme.BAD, 14))
+        remove_btn.setIconSize(QSize(14, 14))
+        up_btn = QPushButton()
+        up_btn.setIcon(_svg_icon("chevron-up", self._BT_BROWN, 16))
+        up_btn.setIconSize(QSize(16, 16))
+        up_btn.setFixedWidth(34)
+        up_btn.setToolTip("Move the selected building up and renumber")
+        down_btn = QPushButton()
+        down_btn.setIcon(_svg_icon("chevron-down", self._BT_BROWN, 16))
+        down_btn.setIconSize(QSize(16, 16))
+        down_btn.setFixedWidth(34)
+        down_btn.setToolTip("Move the selected building down and renumber")
+        controls.addWidget(add_btn)
+        controls.addWidget(remove_btn)
+        controls.addStretch()
+        controls.addWidget(up_btn)
+        controls.addWidget(down_btn)
+        root.addLayout(controls)
+
+        def _update_move_buttons():
+            rows = _selected_rows()
+            one = len(rows) == 1
+            up_btn.setEnabled(one and rows[0] > 0)
+            down_btn.setEnabled(one and rows[0] < table.rowCount() - 1)
+            _sync_map_selection()
+
+        def _move_selected(delta):
+            import re
+            rows = _selected_rows()
+            if len(rows) != 1:
+                return
+            source = rows[0]
+            target = source + delta
+            if target < 0 or target >= table.rowCount():
+                return
+            # The feature id and its measured area travel together. References
+            # are then regenerated from the resulting row order.
+            row_fids[source], row_fids[target] = (
+                row_fids[target], row_fids[source])
+            table.blockSignals(True)
+            source_items = [table.takeItem(source, col) for col in range(3)]
+            target_items = [table.takeItem(target, col) for col in range(3)]
+            for col in range(3):
+                table.setItem(source, col, target_items[col])
+                table.setItem(target, col, source_items[col])
+            auto_number = 1
+            for row in range(table.rowCount()):
+                label_item = table.item(row, 0)
+                label = label_item.text().strip()
+                numbered_prefix = re.match(r"^B\d+", label, re.IGNORECASE)
+                if numbered_prefix is not None:
+                    # Keep any descriptive suffix: e.g. moving
+                    # "B7 Main House" into second place gives
+                    # "B2 Main House", not merely "B2".
+                    suffix = label[numbered_prefix.end():]
+                    label_item.setText("B%d%s" % (auto_number, suffix))
+                    auto_number += 1
+            table.blockSignals(False)
+            _preview_buildings()
+            table.clearSelection()
+            table.selectRow(target)
+            table.setCurrentCell(target, 0)
+
+        table.itemSelectionChanged.connect(_update_move_buttons)
+        def _cell_clicked(row, col):
+            if col == 0:
+                table.editItem(table.item(row, 0))
+            elif col == 1:
+                _choose_colour(row)
+
+        table.cellClicked.connect(_cell_clicked)
+        table.itemChanged.connect(
+            lambda item: _preview_buildings() if item.column() == 0 else None)
+        up_btn.clicked.connect(lambda: _move_selected(-1))
+        down_btn.clicked.connect(lambda: _move_selected(1))
+        _update_move_buttons()
+
+        footer = QHBoxLayout()
+        apply_btn = QPushButton("Apply and save")
+        apply_btn.setDefault(True)
+        cancel_btn = QPushButton("Cancel")
+        footer.addStretch()
+        footer.addWidget(cancel_btn)
+        footer.addWidget(apply_btn)
+        root.addLayout(footer)
+
+        def _apply(start_placement=False):
+            changes = {}
+            colours = {}
+            names = []
+            for row, fid in enumerate(row_fids):
+                item = table.item(row, 0)
+                name = str(item.text() if item is not None else "").strip()
+                if not name:
+                    QMessageBox.warning(
+                        dlg, "Building reference required",
+                        "Enter a reference for every building.")
+                    table.setCurrentCell(row, 0)
+                    return False
+                if name.casefold() in names:
+                    QMessageBox.warning(
+                        dlg, "Duplicate building reference",
+                        "Each building needs a unique reference.")
+                    table.setCurrentCell(row, 0)
+                    return False
+                names.append(name.casefold())
+                changes[fid] = name
+                colours[fid] = str(
+                    table.item(row, 1).data(Qt.ItemDataRole.UserRole))
+            if not update_building_management(
+                    changes, removed_fids, colours):
+                QMessageBox.warning(
+                    dlg, "Manage buildings",
+                    "The building changes could not be saved.")
+                return False
+            if removed_fids:
+                current = _live_layer()
+                if current is not None:
+                    self.drop_undo_entries(
+                        [(current, fid) for fid in removed_fids])
+            dialog_state["applied"] = True
+            current = _live_layer()
+            if current is not None:
+                current.removeSelection()
+            self.iface.mapCanvas().refresh()
+            self._bt_update_counts()
+            dlg.accept()
+            if start_placement:
+                self._bt_build_btn.setChecked(True)
+            return True
+
+        def _has_changes():
+            if removed_fids or row_fids != original_order:
+                return True
+            for row, fid in enumerate(row_fids):
+                label_item = table.item(row, 0)
+                colour_item = table.item(row, 1)
+                label = str(
+                    label_item.text() if label_item is not None else "").strip()
+                colour = str(
+                    colour_item.data(Qt.ItemDataRole.UserRole)
+                    if colour_item is not None else "").casefold()
+                if label != original_labels.get(fid, ""):
+                    return True
+                if colour != original_colours.get(fid, "").casefold():
+                    return True
+            return False
+
+        def _request_close():
+            if not _has_changes():
+                return True
+            box = QMessageBox(dlg)
+            box.setWindowTitle("Unsaved building changes")
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setText("Do you want to save your building changes?")
+            box.setInformativeText(
+                "Save keeps the changed names, colours, order and removals. "
+                "Discard restores the buildings as they were when this window opened.")
+            save_btn = box.addButton(
+                "Save changes", QMessageBox.ButtonRole.AcceptRole)
+            discard_btn = box.addButton(
+                "Discard changes", QMessageBox.ButtonRole.DestructiveRole)
+            keep_btn = box.addButton(
+                "Continue editing", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(save_btn)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is save_btn:
+                _apply(False)
+                return False
+            if clicked is discard_btn:
+                return True
+            if clicked is keep_btn:
+                return False
+            return False
+
+        add_btn.clicked.connect(lambda: _apply(True))
+        remove_btn.clicked.connect(_remove_selected)
+        apply_btn.clicked.connect(lambda: _apply(False))
+        cancel_btn.clicked.connect(dlg.reject)
+        dlg.close_request = _request_close
+
+        def _finished(_result):
+            if not dialog_state["applied"]:
+                update_building_management(
+                    original_labels, colour_changes=original_colours)
+            current = _live_layer()
+            if current is not None:
+                current.removeSelection()
+            while map_highlights:
+                highlight = map_highlights.pop()
+                try:
+                    highlight.hide()
+                    highlight.deleteLater()
+                except RuntimeError:
+                    pass
+            self.iface.mapCanvas().refresh()
+
+        dlg.finished.connect(_finished)
+        dlg.exec()
 
     def _bt_manage_trees(self):
         """Manage retained/removed status and an optional buffer per tree."""
@@ -1284,7 +1724,7 @@ class BuildingTreeMixin:
         self._bt_update_counts()
         if bid:
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser", f"{bid} removed", level=Qgis.MessageLevel.Info, duration=1)
+                "Buildings & Trees Visualiser", f"{bid} removed", level=Qgis.MessageLevel.Info, duration=1)
 
     def _bt_undo_tree(self):
         from .building_tree_mapper import remove_last_tree, peek_last_tree
@@ -1296,7 +1736,7 @@ class BuildingTreeMixin:
         self._bt_update_counts()
         if tid:
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser", f"{tid} removed", level=Qgis.MessageLevel.Info, duration=1)
+                "Buildings & Trees Visualiser", f"{tid} removed", level=Qgis.MessageLevel.Info, duration=1)
 
     def _bt_clear_buildings(self):
         from .building_tree_mapper import count_buildings, clear_buildings
@@ -1373,7 +1813,7 @@ class BuildingTreeMixin:
                 lyr.deleteFeature(fid)
                 lyr.commitChanges()
                 self.iface.messageBar().pushMessage(
-                    "Site Plan Visualiser",
+                    "Buildings & Trees Visualiser",
                     "That area is entirely outside the redline — nothing was added.",
                     level=Qgis.MessageLevel.Warning, duration=3)
                 return
@@ -1386,7 +1826,7 @@ class BuildingTreeMixin:
         from .curtilage_mapper import _commit_or_rollback
         if not _commit_or_rollback(lyr):
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser",
+                "Buildings & Trees Visualiser",
                 "The curtilage area couldn't be saved to the layer — nothing was added.",
                 level=Qgis.MessageLevel.Warning, duration=4)
             return
@@ -1398,7 +1838,7 @@ class BuildingTreeMixin:
         if has_autofill():
             msg += " — re-run Fill remainder to update the available area"
         self.iface.messageBar().pushMessage(
-            "Site Plan Visualiser", msg, level=Qgis.MessageLevel.Info, duration=3)
+            "Buildings & Trees Visualiser", msg, level=Qgis.MessageLevel.Info, duration=3)
 
     def _bt_ask_gardens_curtilage(self):
         """Popup: are the proposal's garden parcels residential curtilage?
@@ -1443,7 +1883,7 @@ class BuildingTreeMixin:
         res = detect_from_proposal(self._bt_ask_gardens_curtilage())
         if res is None:
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser",
+                "Buildings & Trees Visualiser",
                 "No proposed habitat layer to scan — draw the proposed habitats first.",
                 level=Qgis.MessageLevel.Warning, duration=4)
             return
@@ -1472,7 +1912,7 @@ class BuildingTreeMixin:
         else:
             msg = "No developed land found in the proposal"
         self.iface.messageBar().pushMessage(
-            "Site Plan Visualiser", msg, level=Qgis.MessageLevel.Info, duration=4)
+            "Buildings & Trees Visualiser", msg, level=Qgis.MessageLevel.Info, duration=4)
 
     def _bt_fill_available(self):
         """Mark everything inside the redline not already curtilage/developed
@@ -1485,7 +1925,7 @@ class BuildingTreeMixin:
         rg = self._get_redline_geom()
         if rg is None:
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser",
+                "Buildings & Trees Visualiser",
                 "Draw the redline boundary first — the available area is "
                 "everything inside it.",
                 level=Qgis.MessageLevel.Warning, duration=4)
@@ -1515,7 +1955,7 @@ class BuildingTreeMixin:
         msg = det_note + ("%.2f ha marked available for enhancement" % ha
                           if added else "no area remains available inside the redline")
         self.iface.messageBar().pushMessage(
-            "Site Plan Visualiser", msg, level=Qgis.MessageLevel.Info, duration=4)
+            "Buildings & Trees Visualiser", msg, level=Qgis.MessageLevel.Info, duration=4)
 
     def _bt_undo_curtilage(self):
         from .curtilage_mapper import peek_last_drawn, remove_last_drawn
@@ -1529,7 +1969,7 @@ class BuildingTreeMixin:
         self._bt_update_counts()
         if ok:
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser", "Curtilage area removed",
+                "Buildings & Trees Visualiser", "Curtilage area removed",
                 level=Qgis.MessageLevel.Info, duration=1)
 
     def _bt_clear_availability(self):
@@ -1597,7 +2037,7 @@ class BuildingTreeMixin:
             self._bt_update_counts()
             self._bt_zoom_trees()
             self.iface.messageBar().pushMessage(
-                "Site Plan Visualiser",
+                "Buildings & Trees Visualiser",
                 "%d tree%s imported from CSV" % (n, "" if n == 1 else "s"),
                 level=Qgis.MessageLevel.Info, duration=3)
 

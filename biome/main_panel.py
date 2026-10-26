@@ -144,7 +144,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         # placing a baseline habitat.
         self._active_habitat_form = None
 
-        # The Building & Tree Mapper screen widget while it is open, so go_back
+        # The Buildings & Trees Visualiser screen widget while it is open, so go_back
         # can stop its placement tools before navigating away.
         self._bt_screen_widget = None
 
@@ -1959,7 +1959,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
                     current.cancel_pending_draw()
         except Exception:
             pass
-        # Building & Tree Mapper: a checked place button = an armed tool
+        # Buildings & Trees Visualiser: a checked place button = an armed tool
         # (freehand building, shape stamp, or tree placer).
         try:
             if any(btn is not None and btn.isChecked()
@@ -2497,7 +2497,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         hbl.addWidget(_row_btn("map-2", "Feature Mapper", self._open_ecological_features,
                                tooltip="Place ecological features on the map — ponds, PRF, fencing and more"))
         hbl.addWidget(_divider_line())
-        hbl.addWidget(_row_btn("building", "Site Plan Visualiser", self._open_building_tree_mapper,
+        hbl.addWidget(_row_btn("building", "Buildings & Trees Visualiser", self._open_building_tree_mapper,
                                tooltip="Map buildings and trees for illustration only — "
                                        "these are NOT counted in any BNG calculation or summary"))
         hb.setLayout(hbl)
@@ -3283,7 +3283,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             if getattr(self, "_active_habitat_form", None) is current:
                 self._active_habitat_form = None
         elif current is getattr(self, "_bt_screen_widget", None):
-            # Leaving the Building & Tree Mapper — stop any armed building/tree
+            # Leaving the Buildings & Trees Visualiser — stop any armed building/tree
             # placement tool so it doesn't stay live on the canvas after Back.
             self._bt_finish()
         # Leaving the Manage screen with a "Move feature" click pending: disarm
@@ -6733,7 +6733,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
                 self.iface.mainWindow(), "Restore", "Failed to restore feature."
             )
 
-    # ── Building & Tree Mapper ─────────────────────────────────────────────
+    # ── Buildings & Trees Visualiser ──────────────────────────────────────
     def _orphan_pair_twin(self, layer, fid):
         """Before deleting a linked tree/hedge feature, find its twin in the
         opposite layer (shared pair_id) and clear that twin's pair_id, so the

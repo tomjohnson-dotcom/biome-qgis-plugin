@@ -1,6 +1,6 @@
 # building_tree_mapper.py
 """
-Site Plan Visualiser for Biome.
+Buildings & Trees Visualiser for Biome.
 
 Self-contained illustration layers that are deliberately kept OUTSIDE the BNG
 habitat system (LayerManager / LAYER_NAMES / HABITAT_FIELDS).  Nothing here
@@ -24,8 +24,10 @@ TREE_BUFFER_LAYER_NAME = "Tree Buffers (Map Only)"
 TREE_RPA_LAYER_NAME = "Tree RPAs (Map Only)"
 TREE_CEZ_LAYER_NAME = "Construction Exclusion Zones (Map Only)"
 TREE_RAZ_LAYER_NAME = "Restricted Activity Zones (Map Only)"
-_BT_GROUP_NAME      = "Site Plan Visualiser"
-_OLD_BT_GROUP_NAME  = "Building & Tree Mapper"
+_BT_GROUP_NAME      = "Buildings and Trees"
+_OLD_BT_GROUP_NAMES = ("Site Plan Visualiser", "Building & Tree Mapper")
+_BUILDINGS_GROUP_NAME = "Buildings"
+_TREES_GROUP_NAME = "Trees"
 
 TREE_COLOUR = "#1F7A4D"   # forest green — clear and map-friendly
 TREE_REMOVED_COLOUR = "#C62828"
@@ -43,6 +45,23 @@ BUILDING_PALETTE = [
 def building_colour_for(index):
     """Return the palette colour (hex) for the index-th building (0-based)."""
     return BUILDING_PALETTE[index % len(BUILDING_PALETTE)]
+
+
+def _next_building_number(lyr):
+    """Return the next unused automatic B-number for *lyr*.
+
+    Using the feature count caused duplicate references after an individual
+    building was removed.  Continue from the highest automatic B-reference
+    instead, while leaving user-supplied names alone.
+    """
+    import re
+    highest = 0
+    for feat in lyr.getFeatures():
+        match = re.fullmatch(r"B(\d+)", str(feat["building_id"] or "").strip(),
+                             re.IGNORECASE)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest + 1
 
 
 def _tag_for_persistence(lyr, table):
@@ -66,21 +85,72 @@ def _tag_for_persistence(lyr, table):
 # ── Group / tree placement ──────────────────────────────────────────────────
 
 def _ensure_group():
-    from qgis.core import QgsProject
+    from qgis.core import QgsLayerTreeGroup, QgsProject
     project = QgsProject.instance()
     root = project.layerTreeRoot()
     grp = root.findGroup(_BT_GROUP_NAME)
     if grp is None:
         # Preserve existing projects and their layer ordering when the tool's
-        # former group name is encountered.
-        grp = root.findGroup(_OLD_BT_GROUP_NAME)
-        if grp is not None:
-            grp.setName(_BT_GROUP_NAME)
+        # former group names are encountered.
+        for old_name in _OLD_BT_GROUP_NAMES:
+            grp = root.findGroup(old_name)
+            if grp is not None:
+                grp.setName(_BT_GROUP_NAME)
+                break
     if grp is None:
         bm  = root.findGroup("Base Maps")
         idx = root.children().index(bm) if bm is not None else 0
         grp = root.insertGroup(idx, _BT_GROUP_NAME)
+
+    def _direct_group(name):
+        for child in grp.children():
+            if isinstance(child, QgsLayerTreeGroup) and child.name() == name:
+                return child
+        return grp.addGroup(name)
+
+    buildings_group = _direct_group(_BUILDINGS_GROUP_NAME)
+    trees_group = _direct_group(_TREES_GROUP_NAME)
+
+    def _move_named_layers(names, target):
+        for name in names:
+            for layer in project.mapLayersByName(name):
+                node = root.findLayer(layer.id())
+                if node is None or node.parent() is target:
+                    continue
+                visible = node.isVisible()
+                parent = node.parent()
+                # Add the replacement node first. QGIS 4.2 can invalidate the
+                # Python QgsVectorLayer wrapper when its final tree node is
+                # removed, even though the project still owns the layer.
+                new_node = target.addLayer(layer)
+                new_node.setItemVisibilityChecked(visible)
+                if parent is not None:
+                    parent.removeChildNode(node)
+
+    _move_named_layers((BUILDING_LAYER_NAME,), buildings_group)
+    _move_named_layers((
+        TREE_LAYER_NAME, TREE_BUFFER_LAYER_NAME, TREE_RPA_LAYER_NAME,
+        TREE_CEZ_LAYER_NAME, TREE_RAZ_LAYER_NAME,
+    ), trees_group)
     return grp
+
+
+def _buildings_group():
+    from qgis.core import QgsLayerTreeGroup
+    grp = _ensure_group()
+    for child in grp.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name() == _BUILDINGS_GROUP_NAME:
+            return child
+    return grp.addGroup(_BUILDINGS_GROUP_NAME)
+
+
+def _trees_group():
+    from qgis.core import QgsLayerTreeGroup
+    grp = _ensure_group()
+    for child in grp.children():
+        if isinstance(child, QgsLayerTreeGroup) and child.name() == _TREES_GROUP_NAME:
+            return child
+    return grp.addGroup(_TREES_GROUP_NAME)
 
 
 def _label_format(colour_hex, size=8.0):
@@ -103,45 +173,72 @@ def get_or_create_building_layer():
     """Return the buildings polygon layer, creating it (and the group) if absent."""
     from qgis.core import (
         QgsProject, QgsVectorLayer, QgsCategorizedSymbolRenderer,
-        QgsPalLayerSettings, QgsVectorLayerSimpleLabeling,
     )
 
     project = QgsProject.instance()
     for lyr in project.mapLayersByName(BUILDING_LAYER_NAME):
         if lyr.geometryType() == 2:      # Polygon
+            _ensure_group()
             _tag_for_persistence(lyr, "buildings_map_only")
+            _ensure_building_fields(lyr)
+            _configure_building_labels(lyr)
+            rebuild_building_renderer(lyr)
             return lyr
 
     lyr = QgsVectorLayer(
         "Polygon?crs=EPSG:27700"
         "&field=building_id:string(10)"
+        "&field=building_label:string(120)"
         "&field=colour:string(9)",
         BUILDING_LAYER_NAME, "memory",
     )
     lyr.setRenderer(QgsCategorizedSymbolRenderer("building_id", []))
 
+    _configure_building_labels(lyr)
+    lyr.setCustomProperty("biome_map_only", 1)   # tag: never counts in BNG
+    _tag_for_persistence(lyr, "buildings_map_only")
+
+    project.addMapLayer(lyr, False)
+    _buildings_group().insertLayer(0, lyr)
+    return lyr
+
+
+def _ensure_building_fields(lyr):
+    """Upgrade older building layers with a long, user-editable label field."""
+    from qgis.core import QgsField
+    from qgis.PyQt.QtCore import QVariant
+    if lyr.fields().indexFromName("building_label") < 0:
+        lyr.dataProvider().addAttributes([
+            QgsField("building_label", QVariant.String, len=120)])
+        lyr.updateFields()
+    label_idx = lyr.fields().indexFromName("building_label")
+    id_idx = lyr.fields().indexFromName("building_id")
+    updates = {}
+    for feat in lyr.getFeatures():
+        if not str(feat[label_idx] or "").strip():
+            updates[feat.id()] = {label_idx: str(feat[id_idx] or "")}
+    if updates:
+        lyr.dataProvider().changeAttributeValues(updates)
+
+
+def _configure_building_labels(lyr):
+    from qgis.core import (
+        QgsPalLayerSettings, QgsVectorLayerSimpleLabeling,
+    )
     pal = QgsPalLayerSettings()
-    pal.enabled   = True
-    pal.fieldName = "building_id"
+    pal.enabled = True
+    pal.fieldName = "building_label"
     pal.setFormat(_label_format("#222222", 9.0))
     try:
-        # place the label at the polygon centroid
         pal.placement = QgsPalLayerSettings.PredefinedPointPosition.OverPoint
     except Exception:
         pass
     try:
-        # Never let a crowded eco-feature label cull a building ref: always show.
         pal.displayAll = True
     except Exception:
         pass
     lyr.setLabeling(QgsVectorLayerSimpleLabeling(pal))
     lyr.setLabelsEnabled(True)
-    lyr.setCustomProperty("biome_map_only", 1)   # tag: never counts in BNG
-    _tag_for_persistence(lyr, "buildings_map_only")
-
-    project.addMapLayer(lyr, False)
-    _ensure_group().insertLayer(0, lyr)
-    return lyr
 
 
 def _building_fill_symbol(colour_hex):
@@ -170,7 +267,8 @@ def rebuild_building_renderer(lyr=None):
         lyr = lyrs[0]
 
     rows = sorted(
-        [(f["building_id"], f["colour"]) for f in lyr.getFeatures() if f["building_id"]],
+        [(str(f["building_label"] or f["building_id"]), f["colour"])
+         for f in lyr.getFeatures() if f["building_id"]],
         key=lambda r: _id_sort_key(r[0]),
     )
     categories = []
@@ -179,7 +277,7 @@ def rebuild_building_renderer(lyr=None):
         categories.append(
             QgsRendererCategory(bid, _building_fill_symbol(colour), bid)
         )
-    lyr.setRenderer(QgsCategorizedSymbolRenderer("building_id", categories))
+    lyr.setRenderer(QgsCategorizedSymbolRenderer("building_label", categories))
     lyr.triggerRepaint()
 
 
@@ -188,13 +286,14 @@ def assign_next_building(lyr, fid):
     already in the layer's edit buffer (the polygon-draw path).  The caller is
     responsible for committing and rebuilding the renderer.  Returns
     (building_id, colour)."""
-    assigned = [f["building_id"] for f in lyr.getFeatures() if f["building_id"]]
-    number = len(assigned) + 1
+    number = _next_building_number(lyr)
     bid    = "B%d" % number
     colour = building_colour_for(number - 1)
     i_id  = lyr.fields().indexOf("building_id")
+    i_label = lyr.fields().indexOf("building_label")
     i_col = lyr.fields().indexOf("colour")
     lyr.changeAttributeValue(fid, i_id, bid)
+    lyr.changeAttributeValue(fid, i_label, bid)
     lyr.changeAttributeValue(fid, i_col, colour)
     return bid, colour
 
@@ -204,13 +303,17 @@ def add_building(geom_27700):
     from qgis.core import QgsFeature
 
     lyr = get_or_create_building_layer()
-    count = sum(1 for _ in lyr.getFeatures())
-    bid    = "B%d" % (count + 1)
-    colour = building_colour_for(count)
+    number = _next_building_number(lyr)
+    bid    = "B%d" % number
+    colour = building_colour_for(number - 1)
 
     feat = QgsFeature(lyr.fields())
     feat.setGeometry(geom_27700)
-    feat.setAttributes([bid, colour])
+    # Set by field name because upgraded legacy layers append building_label
+    # after colour, while newly-created layers define it before colour.
+    feat.setAttribute("building_id", bid)
+    feat.setAttribute("building_label", bid)
+    feat.setAttribute("colour", colour)
 
     lyr.startEditing()
     lyr.addFeature(feat)
@@ -218,6 +321,48 @@ def add_building(geom_27700):
 
     rebuild_building_renderer(lyr)
     return bid, colour
+
+
+def update_building_management(changes, removed_fids=(), colour_changes=None):
+    """Rename, recolour and remove buildings, then refresh their map style.
+
+    ``changes`` maps feature id to its new display reference.  References are
+    stored in ``building_label``; ``colour_changes`` optionally maps feature
+    ids to HTML colours. Both fields drive the map labels and legend categories.
+    """
+    from qgis.core import QgsProject
+    layers = QgsProject.instance().mapLayersByName(BUILDING_LAYER_NAME)
+    if not layers:
+        return False
+    lyr = layers[0]
+    _ensure_building_fields(lyr)
+    label_idx = lyr.fields().indexFromName("building_label")
+    colour_idx = lyr.fields().indexFromName("colour")
+    if label_idx < 0 or colour_idx < 0:
+        return False
+    removed = {int(fid) for fid in removed_fids}
+    updates = {
+        int(fid): {label_idx: str(label or "").strip()[:120]}
+        for fid, label in changes.items() if int(fid) not in removed
+    }
+    from qgis.PyQt.QtGui import QColor
+    for fid, colour in (colour_changes or {}).items():
+        fid = int(fid)
+        parsed = QColor(str(colour or ""))
+        if fid not in removed and parsed.isValid():
+            updates.setdefault(fid, {})[colour_idx] = parsed.name()
+    if not lyr.isEditable():
+        lyr.startEditing()
+    for fid in removed:
+        lyr.deleteFeature(fid)
+    for fid, attrs in updates.items():
+        for field_idx, value in attrs.items():
+            lyr.changeAttributeValue(fid, field_idx, value)
+    if not lyr.commitChanges():
+        lyr.rollBack()
+        return False
+    rebuild_building_renderer(lyr)
+    return True
 
 
 # ── Tree layer ──────────────────────────────────────────────────────────────
@@ -229,6 +374,7 @@ def get_or_create_tree_layer():
     project = QgsProject.instance()
     for lyr in project.mapLayersByName(TREE_LAYER_NAME):
         if lyr.geometryType() == 0:      # Point
+            _ensure_group()
             _tag_for_persistence(lyr, "trees_map_only")
             _ensure_tree_fields(lyr)
             _configure_tree_labels(lyr)
@@ -251,7 +397,7 @@ def get_or_create_tree_layer():
     _tag_for_persistence(lyr, "trees_map_only")
 
     project.addMapLayer(lyr, False)
-    _ensure_group().insertLayer(0, lyr)
+    _trees_group().insertLayer(0, lyr)
     return lyr
 
 
@@ -444,7 +590,7 @@ def rebuild_tree_buffers(tree_layer=None):
         buffers.setCustomProperty("biome_map_only", 1)
         _tag_for_persistence(buffers, "tree_buffers_map_only")
         project.addMapLayer(buffers, False)
-        _ensure_group().insertLayer(1, buffers)
+        _trees_group().insertLayer(1, buffers)
 
     feats = []
     for tree in tree_layer.getFeatures():
@@ -517,7 +663,7 @@ def rebuild_tree_rpas(tree_layer=None):
         rpas.setCustomProperty("biome_map_only", 1)
         _tag_for_persistence(rpas, "tree_rpas_map_only")
         project.addMapLayer(rpas, False)
-        _ensure_group().insertLayer(1, rpas)
+        _trees_group().insertLayer(1, rpas)
 
     feats = []
     for tree in tree_layer.getFeatures():
@@ -603,7 +749,7 @@ def _rebuild_tree_zone(source_field, layer_name, table_name, fill_colour,
         zone.setCustomProperty("biome_map_only", 1)
         _tag_for_persistence(zone, table_name)
         project.addMapLayer(zone, False)
-        node = _ensure_group().insertLayer(1, zone)
+        node = _trees_group().insertLayer(1, zone)
         node.setItemVisibilityChecked(False)
 
     exclusion = None

@@ -386,10 +386,6 @@ class MapExportDialog(QDialog):
             "PRA Map",
             "Ecological Enhancement Map",
             "Emergence Survey Layout",
-            "Building Map",
-            "Tree Map",
-            "Building & Tree Map",
-            "Enhancement Availability Map",
             "Custom",
         ])
         self.map_type_combo.currentTextChanged.connect(self._on_type_changed)
@@ -638,13 +634,28 @@ class MapExportDialog(QDialog):
         self._layer_checkboxes = []  # [(QCheckBox, layer)]
 
         root = QgsProject.instance().layerTreeRoot()
+        # Use the canvas's actual layer set rather than only each tree node's
+        # local checkbox. This respects hidden parent groups and makes Custom
+        # open with exactly the non-basemap layers currently being viewed.
+        visible_ids = None
+        try:
+            from qgis.utils import iface as qgis_iface
+            if qgis_iface is not None:
+                visible_ids = {
+                    layer.id() for layer in qgis_iface.mapCanvas().layers()
+                    if layer is not None
+                }
+        except Exception:
+            visible_ids = None
 
         def _walk(node, indent=0):
             if isinstance(node, QgsLayerTreeLayer):
                 lyr = node.layer()
                 if lyr and not _is_basemap_layer(lyr):
                     cb = QCheckBox("  " * indent + lyr.name())
-                    cb.setChecked(node.isVisible())
+                    cb.setChecked(
+                        lyr.id() in visible_ids
+                        if visible_ids is not None else node.isVisible())
                     cb.setStyleSheet("font-size:11px;")
                     self._layer_checks_layout.addWidget(cb)
                     self._layer_checkboxes.append((cb, lyr))
@@ -652,7 +663,10 @@ class MapExportDialog(QDialog):
                 # Record index before adding children
                 start_idx = len(self._layer_checkboxes)
                 # Add group checkbox
-                any_vis = any(c.isVisible() for c in node.findLayers())
+                any_vis = (
+                    any(c.layerId() in visible_ids for c in node.findLayers())
+                    if visible_ids is not None
+                    else any(c.isVisible() for c in node.findLayers()))
                 cb_grp = QCheckBox("  " * indent + node.name())
                 cb_grp.setChecked(any_vis)
                 cb_grp.setStyleSheet("font-size:11px; font-weight:500; color:#175E3B;")

@@ -55,7 +55,7 @@ CORE_LAYERS = set(REDLINE_NAME_ALIASES) | {"Blue Line Boundary"}
 # deliberately walks descendants rather than direct children only.
 DROPDOWN_GROUPS = (
     "Baseline Habitats", "Proposed Habitats", "Ecological Features",
-    "Site Plan Visualiser", "Standing Water Bodies",
+    "Buildings and Trees", "Site Plan Visualiser", "Standing Water Bodies",
 )
 
 _STANDING_WATER_CHILDREN = {

@@ -17,7 +17,7 @@ Three ways areas arrive on the layer (the `source` field):
                  every re-run.
 
 All geometry is stored in EPSG:27700 (British National Grid), matching the
-Building & Tree Mapper layers.  The layer is memory-backed and persisted to
+Buildings & Trees Visualiser layers. The layer is memory-backed and persisted to
 the project GeoPackage via the same scratch-layer tags.
 """
 
@@ -59,7 +59,7 @@ _SLIVER_M2 = 0.5
 
 def get_or_create_availability_layer():
     """Return the availability polygon layer, creating it (and the group) if
-    absent.  The layer is appended at the END of the Building & Tree Mapper
+    absent. The layer is appended at the END of the Buildings and Trees
     group so it renders underneath buildings and trees on the canvas.
 
     MULTIPOLYGON, not Polygon: detect unions and fill remainders are routinely
