@@ -32,9 +32,9 @@ import sys as _sys
 # --- Default house style (the ROAVR Google Docs report template) -----------
 DEFAULT_STYLE = {
     "border_on": True,
-    "border_colour": "#c8b87a",   # gold
+    "border_colour": "#d9d9d9",   # light grey
     "border_width_pt": 0.5,
-    "fill_mode": "alternating",   # "alternating" | "single" | "none"
+    "fill_mode": "none",          # "alternating" | "single" | "none"
     "bg_1": "#ffffff",            # 1st / odd body rows
     "bg_2": "#f5f5f5",            # 2nd / even body rows
     "pad_v_pt": 4,                # cell padding, vertical (top/bottom)
@@ -45,12 +45,12 @@ DEFAULT_STYLE = {
     "header_on": True,
     "header_bg": "#333333",       # dark charcoal
     "header_fg": "#ffffff",       # white text
-    "header_bold": True,
+    "header_bold": False,
     # Fonts -- empty family / 0 size means "inherit the destination doc's font"
     # (the default; keeps the ROAVR template's own font). Populated when the
     # user imports a style from a pasted table, or sets one by hand.
-    "header_font": "",            # header cell font family ("" = inherit)
-    "header_font_pt": 0,          # header cell font size, pt (0 = inherit)
+    "header_font": "Barlow",      # report-template header family
+    "header_font_pt": 10,         # report-template header size
     "body_font": "",              # body cell font family ("" = inherit)
     "body_font_pt": 0,            # body cell font size, pt (0 = inherit)
     "body_fg": "",                # body text colour ("" = inherit)
@@ -133,7 +133,7 @@ def _cell_style(style, bg, is_header=False):
     parts = []
     if style.get("border_on", True):
         w = _fmt_pt(style.get("border_width_pt", 0.5))
-        col = style.get("border_colour", "#c8b87a")
+        col = style.get("border_colour", "#d9d9d9")
         for side in ("left", "right", "bottom", "top"):
             parts.append("border-%s:solid %s %spt" % (side, col, w))
     parts.append("vertical-align:%s" % style.get("valign", "middle"))
@@ -211,7 +211,7 @@ def apply_table_style(tbl, style=None):
     if style is None:
         style = load_style()
     on = bool(style.get("border_on", True))
-    border = style.get("border_colour", "#c8b87a") if on else "#D9DED7"
+    border = style.get("border_colour", "#d9d9d9") if on else "#D9DED7"
     mode = style.get("fill_mode", "alternating")
     bg1 = style.get("bg_1", "#ffffff")
     if mode == "none":

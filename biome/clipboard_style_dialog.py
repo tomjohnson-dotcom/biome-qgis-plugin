@@ -67,6 +67,7 @@ class _FontChoice(QWidget):
         lay.setSpacing(8)
         self._on = QCheckBox("Custom")
         self._combo = QFontComboBox()
+        self._combo.setEditable(True)
         self._combo.setFixedWidth(178)
         self._size = QSpinBox()
         self._size.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.PlusMinus)
@@ -96,12 +97,12 @@ class _FontChoice(QWidget):
     def value(self):
         if not self._on.isChecked():
             return "", 0
-        return self._combo.currentFont().family(), self._size.value()
+        return self._combo.currentText().strip(), self._size.value()
 
     def setValue(self, family, pt):
         self._on.setChecked(bool(family))
         if family:
-            self._combo.setCurrentFont(QFont(family))
+            self._combo.setCurrentText(family)
         if pt:
             try:
                 self._size.setValue(int(round(float(pt))))
