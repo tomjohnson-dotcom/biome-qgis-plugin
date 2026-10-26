@@ -1033,13 +1033,94 @@ def _redline_distance_and_direction(redline_geom, feature_geom, feat_cx, feat_cy
 # Priority Habitat Inventory — 2 km query
 # ---------------------------------------------------------------------------
 
-_PHI_BASE = (
+_PHI_SERVICE = (
     "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services"
-    # Natural England republished the feature layer at service layer 1;
-    # layer 0 now returns "requested layer was not found". Ancient Woodland
-    # was unaffected because it is supplied by a separate WFS.
-    "/Priority_Habitats_Inventory_England/FeatureServer/1/query"
+    "/Priority_Habitats_Inventory_England/FeatureServer"
 )
+_PHI_QUERY_URL = None
+
+
+def _phi_query_endpoint(force_refresh=False):
+    """Return the live PHI query endpoint discovered from ArcGIS metadata.
+
+    Natural England has moved this layer between numeric service IDs before.
+    Resolve the current Feature Layer ID from the stable service root and cache
+    it for the process. Layer 0 remains the offline fallback if metadata cannot
+    be reached.
+    """
+    global _PHI_QUERY_URL
+    import json
+    import threading
+    from urllib.request import urlopen, Request
+
+    if _PHI_QUERY_URL is not None and not force_refresh:
+        return _PHI_QUERY_URL
+    lock = getattr(_phi_query_endpoint, "_lock", None)
+    if lock is None:
+        lock = _phi_query_endpoint._lock = threading.Lock()
+    with lock:
+        if _PHI_QUERY_URL is not None and not force_refresh:
+            return _PHI_QUERY_URL
+        layer_id = 0
+        try:
+            request = Request(
+                _PHI_SERVICE + "?f=json",
+                headers={"User-Agent": "BiomeQGISPlugin/1.0"},
+            )
+            with urlopen(request, timeout=10) as response:
+                metadata = json.loads(response.read().decode("utf-8"))
+            layers = metadata.get("layers", []) or []
+            candidates = [
+                layer for layer in layers
+                if str(layer.get("type", "")).casefold() == "feature layer"
+            ] or layers
+            preferred = next(
+                (layer for layer in candidates
+                 if "priority habitat" in str(layer.get("name", "")).casefold()),
+                candidates[0] if candidates else None,
+            )
+            if preferred is not None:
+                layer_id = int(preferred.get("id", 0))
+        except Exception:
+            layer_id = 0
+        _PHI_QUERY_URL = f"{_PHI_SERVICE}/{layer_id}/query"
+        return _PHI_QUERY_URL
+
+
+def _phi_fetch_json(params, timeout=30):
+    """Fetch PHI JSON, rediscovering the feature layer after a stale URL."""
+    import json
+    from urllib.request import urlopen, Request
+
+    last_error = None
+    for attempt in range(2):
+        endpoint = _phi_query_endpoint(force_refresh=bool(attempt))
+        try:
+            request = Request(
+                endpoint + "?" + params,
+                headers={"User-Agent": "BiomeQGISPlugin/1.0"},
+            )
+            with urlopen(request, timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            raise
+        error = data.get("error")
+        if not error:
+            return data
+        message = str(error.get("message", "API error"))
+        last_error = RuntimeError(message)
+        stale_endpoint = (
+            "invalid url" in message.casefold()
+            or "layer was not found" in message.casefold()
+            or "service not found" in message.casefold()
+        )
+        if attempt == 0 and stale_endpoint:
+            continue
+        raise last_error
+    raise last_error or RuntimeError("PHI service unavailable")
 
 # ``NMHAB`` is not a habitat type.  Natural England uses it where no main
 # habitat could be assigned to the polygon, while ``AddHabs`` records the
@@ -1364,8 +1445,7 @@ def query_priority_habitats_2km(easting, northing, redline_geom=None, group_near
             "f":                 "json",
         })
         try:
-            resp = urlopen(f"{_PHI_BASE}?{params}", timeout=30)
-            data = json.loads(resp.read().decode("utf-8"))
+            data = _phi_fetch_json(params, timeout=30)
         except Exception as exc:
             raise RuntimeError(f"PHI query failed: {exc}")
 
@@ -3586,8 +3666,7 @@ def _fetch_phi_group_features(group_key, bbox):
             "f":                 "json",
         })
         try:
-            resp = urlopen(_PHI_BASE + "?" + params, timeout=30)
-            data = json.loads(resp.read().decode("utf-8"))
+            data = _phi_fetch_json(params, timeout=30)
         except Exception as exc:
             raise RuntimeError(f"PHI fetch failed: {exc}")
         if "error" in data:
@@ -4924,7 +5003,7 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
         data=urlencode({"data": overpass_query}).encode(),
         headers={"User-Agent": "BiomeMapper/1.0"},
     )
-    priority_url = _PHI_BASE + "?" + urlencode({
+    priority_params = urlencode({
         "where": (
             "MainHabs LIKE '%Ponds%' OR MainHabs LIKE '%Lakes%' "
             "OR (MainHabs = 'No main habitat but additional habitats present' "
@@ -4979,12 +5058,12 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
         requests = {
             "os": Request(os_url, headers={"User-Agent": "BiomeMapper/1.0"}),
             "osm": osm_req,
-            "priority": Request(
-                priority_url, headers={"User-Agent": "BiomeMapper/1.0"}),
         }
-        with ThreadPoolExecutor(max_workers=len(requests) + bool(ngd_api_key)) as pool:
+        with ThreadPoolExecutor(
+                max_workers=len(requests) + 1 + bool(ngd_api_key)) as pool:
             pending = {pool.submit(_fetch_json, request): name
                        for name, request in requests.items()}
+            pending[pool.submit(_phi_fetch_json, priority_params, 12)] = "priority"
             if ngd_api_key:
                 pending[pool.submit(_fetch_ngd_pages)] = "ngd"
             for future in as_completed(pending):
@@ -6092,9 +6171,6 @@ def get_lpa_for_bng(easting, northing):
                    suffix), or None
       reference -- stable LPA code e.g. 'E60000195', or None
     """
-    import json
-    from urllib.request import urlopen, Request
-    from urllib.parse import urlencode
     from qgis.core import (
         QgsCoordinateReferenceSystem, QgsCoordinateTransform,
         QgsPointXY, QgsProject,
@@ -6109,6 +6185,20 @@ def get_lpa_for_bng(easting, northing):
         lon, lat = pt.x(), pt.y()
     except Exception:
         return None, None
+
+    return get_lpa_for_wgs84(lon, lat)
+
+
+def get_lpa_for_wgs84(lon, lat):
+    """Resolve an LPA from WGS84 coordinates using network calls only.
+
+    Keeping the coordinate transform in :func:`get_lpa_for_bng` allows callers
+    to perform that QGIS work on the GUI thread, then safely run this blocking
+    HTTP portion in a background Python thread.
+    """
+    import json
+    from urllib.request import urlopen, Request
+    from urllib.parse import urlencode
 
     # --- Primary: planning.data.gov.uk point-in-polygon -------------------
     try:

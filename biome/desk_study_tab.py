@@ -274,6 +274,11 @@ class _FieldSyncBridge(QObject):
     received = pyqtSignal(object)
 
 
+class _LpaLookupBridge(QObject):
+    """Deliver a completed background LPA lookup back to the GUI thread."""
+    resolved = pyqtSignal(object)
+
+
 class DeskStudyMixin:
     def _build_desk_study_tab(self):
         """Build the Desk Study tab with redline stats and ecology overlay toggles."""
@@ -2105,22 +2110,52 @@ class DeskStudyMixin:
         self._ds_lpa.setText("Resolving…")
         self._ds_lpa_pending = key
 
-        def _resolve():
-            if getattr(self, "_ds_lpa_pending", None) != key:
-                return   # redline moved on; a newer resolve owns the label
-            name = None
-            try:
-                name, _ref = get_lpa_for_bng(cx, cy)
-            except Exception:
-                name = None
-            full = lpa_full_name(name) if name else ""   # "Swindon" -> "Swindon Borough Council"
-            cache[key] = full or ""
-            self._store_ds_lpa(full)
-            if getattr(self, "_ds_lpa_pending", None) == key:
-                self._ds_lpa.setText(full or "Not found")
-                self._ds_lpa_pending = None
+        # Transform on the GUI thread because QgsProject and coordinate
+        # transforms are QGIS objects. The slow HTTP-only lookup then runs in a
+        # daemon thread, so a network timeout cannot freeze red-line placement
+        # or delay the GCN DLL coverage notification.
+        try:
+            from qgis.core import (
+                QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+                QgsPointXY, QgsProject,
+            )
+            bng = QgsCoordinateReferenceSystem("EPSG:27700")
+            wgs = QgsCoordinateReferenceSystem("EPSG:4326")
+            point = QgsCoordinateTransform(
+                bng, wgs, QgsProject.instance()).transform(QgsPointXY(cx, cy))
+            lon, lat = point.x(), point.y()
+        except Exception:
+            lon = lat = None
 
-        QTimer.singleShot(60, _resolve)
+        bridge = getattr(self, "_ds_lpa_bridge", None)
+        if bridge is None:
+            bridge = _LpaLookupBridge(self)
+            bridge.resolved.connect(self._apply_ds_lpa_result)
+            self._ds_lpa_bridge = bridge
+
+        inflight = getattr(self, "_ds_lpa_inflight", None)
+        if inflight is None:
+            inflight = self._ds_lpa_inflight = set()
+        if key not in inflight:
+            inflight.add(key)
+
+            def _resolve_http():
+                name = None
+                if lon is not None and lat is not None:
+                    try:
+                        from .designated_sites import get_lpa_for_wgs84
+                        name, _ref = get_lpa_for_wgs84(lon, lat)
+                    except Exception:
+                        name = None
+                try:
+                    bridge.resolved.emit((key, name))
+                except RuntimeError:
+                    pass   # panel closed while the request was in flight
+
+            import threading
+            threading.Thread(
+                target=_resolve_http, name="BiomeLpaLookup", daemon=True,
+            ).start()
 
         # Store BNG centroid for LPA finder
         self._centroid_bng = (cx, cy)
@@ -2131,6 +2166,26 @@ class DeskStudyMixin:
             self._sync_region_ui()
         except Exception:
             pass
+
+    def _apply_ds_lpa_result(self, result):
+        """Apply a background LPA result on the Qt GUI thread."""
+        try:
+            key, name = result
+        except (TypeError, ValueError):
+            return
+        inflight = getattr(self, "_ds_lpa_inflight", None)
+        if inflight is not None:
+            inflight.discard(key)
+        full = lpa_full_name(name) if name else ""
+        cache = getattr(self, "_ds_lpa_cache", None)
+        if cache is None:
+            cache = self._ds_lpa_cache = {}
+        cache[key] = full or ""
+        if getattr(self, "_ds_lpa_pending", None) != key:
+            return   # the redline moved; a newer lookup owns the visible tile
+        self._store_ds_lpa(full)
+        self._ds_lpa.setText(full or "Not found")
+        self._ds_lpa_pending = None
 
     def _store_ds_lpa(self, full):
         """Persist the resolved desk-study LPA per-project so the filled-metric
