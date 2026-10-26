@@ -1,10 +1,12 @@
-"""Build a versioned Biome ZIP and regenerate the QGIS repository catalogue."""
+"""Build a Biome ZIP and regenerate the QGIS repository catalogue."""
 
+import argparse
 from configparser import ConfigParser
 from datetime import date
 from pathlib import Path
 from xml.sax.saxutils import escape
 import compileall
+import re
 import shutil
 import zipfile
 
@@ -22,9 +24,21 @@ def metadata():
     return parser["general"]
 
 
-def build_zip(version):
+def set_metadata_version(version):
+    """Update only the metadata version line, preserving the hand-written file."""
+    path = PLUGIN_DIR / "metadata.txt"
+    text = path.read_bytes().decode("utf-8")
+    updated, count = re.subn(
+        r"(?m)^version\s*=.*$", f"version={version}", text, count=1
+    )
+    if count != 1:
+        raise RuntimeError("Could not update the plugin version in metadata.txt")
+    path.write_bytes(updated.encode("utf-8"))
+
+
+def build_zip(version, archive_name=None):
     RELEASE_DIR.mkdir(exist_ok=True)
-    output = RELEASE_DIR / f"biome-{version}.zip"
+    output = RELEASE_DIR / (archive_name or f"biome-{version}.zip")
     if output.exists():
         output.unlink()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -70,12 +84,24 @@ def write_catalogue(info, version, archive):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--version",
+        help="Version to write into metadata.txt and the repository catalogue",
+    )
+    parser.add_argument(
+        "--archive-name",
+        help="ZIP filename inside releases (for example biome-latest.zip)",
+    )
+    args = parser.parse_args()
+    if args.version:
+        set_metadata_version(args.version.strip())
     if not compileall.compile_dir(PLUGIN_DIR, quiet=1, force=True):
         raise SystemExit("Python compilation failed")
     shutil.rmtree(PLUGIN_DIR / "__pycache__", ignore_errors=True)
     info = metadata()
     version = info["version"].strip()
-    archive = build_zip(version)
+    archive = build_zip(version, args.archive_name)
     write_catalogue(info, version, archive)
     print(f"Built {archive.name} ({archive.stat().st_size / 1_000_000:.1f} MB)")
 
