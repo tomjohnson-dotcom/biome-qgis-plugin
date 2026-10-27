@@ -114,6 +114,13 @@ class SettingsDialogsMixin:
                     f"{_fmt(get_pond_inner_radius())}–"
                     f"{_fmt(get_search_radius('standing_water'))}")
 
+        def _standing_water_status():
+            from .config import STANDING_WATER_TYPES, get_standing_water_types
+            enabled = get_standing_water_types()
+            labels = [label for key, label in STANDING_WATER_TYPES
+                      if key in enabled]
+            return "Included: " + (" · ".join(labels) if labels else "none")
+
         def _redline_snap_status():
             return ("On · red and blue lines snap to habitat polygon edges"
                     if get_redline_snap_to_habitats()
@@ -269,6 +276,7 @@ class SettingsDialogsMixin:
             "Boundary snapping": "Map & Tools",
             "Site region": "Map & Tools",
             "Search distances": "Desk Study",
+            "Standing water types": "Desk Study",
             "Priority habitat reports": "Desk Study",
             "Report table style": "Reports & maps",
             "Final map branding": "Reports & maps",
@@ -452,6 +460,12 @@ class SettingsDialogsMixin:
             "One shared distance controls the wider Desk Study searches. Two "
             "shorter local distances control TPO and pond searches and can also "
             "be used as general redline buffers.")
+        _add_row(
+            "droplet", "Standing water types", _standing_water_status,
+            "Choose…", lambda: self._open_standing_water_types_dialog(dlg),
+            "Choose which mapped water-body classes are included in the "
+            "Standing Water Bodies search. Ponds and lakes are enabled by "
+            "default; flowing waters are excluded.")
         _add_row(
             "layers", "Priority habitat reports", _phi_grouping_status, "Customise…",
             lambda: self._open_phi_grouping_dialog(dlg),
@@ -865,6 +879,67 @@ class SettingsDialogsMixin:
                           "auto")
             if chosen != current:
                 theme.set_theme_preference(chosen)
+
+    def _open_standing_water_types_dialog(self, parent=None):
+        """Choose the water-body classes included by the desk-study search."""
+        from qgis.PyQt.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox,
+            QPushButton, QHBoxLayout,
+        )
+        from .config import (
+            STANDING_WATER_TYPES, get_standing_water_types,
+            set_standing_water_types,
+        )
+
+        dlg = QDialog(parent or self)
+        dlg.setWindowTitle("Standing water types")
+        dlg.setMinimumWidth(470)
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(16, 14, 16, 12)
+        v.setSpacing(8)
+
+        intro = QLabel(
+            "Choose which water-body classes Biome includes when loading mapped "
+            "outlines. Ponds and lakes are the recommended defaults for the pond "
+            "search; rivers and streams are flowing-water habitats.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#46574D;font-size:11px;")
+        v.addWidget(intro)
+
+        enabled = get_standing_water_types()
+        checks = {}
+        for key, label in STANDING_WATER_TYPES:
+            check = QCheckBox(label)
+            check.setChecked(key in enabled)
+            check.setStyleSheet("font-size:12px;color:#1F3E2D;padding:3px;")
+            checks[key] = check
+            v.addWidget(check)
+
+        foot = QHBoxLayout()
+        defaults = QPushButton("Ponds and lakes only")
+        defaults.clicked.connect(lambda: [
+            check.setChecked(key in {"ponds", "lakes"})
+            for key, check in checks.items()])
+        foot.addWidget(defaults)
+        foot.addStretch(1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        foot.addWidget(buttons)
+        v.addLayout(foot)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            set_standing_water_types(
+                key for key, check in checks.items() if check.isChecked())
+            # The current outline layer may contain now-disabled classes. Hide
+            # it so the next Load click always rebuilds with the new selection.
+            try:
+                from .designated_sites import remove_standing_water_layer
+                remove_standing_water_layer()
+            except Exception:
+                pass
 
     def _open_search_radius_dialog(self, parent=None):
         """Edit the shared search area and the two named local-search presets."""

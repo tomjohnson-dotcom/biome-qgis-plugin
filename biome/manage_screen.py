@@ -134,6 +134,26 @@ class _AreaSymbolPill(QWidget):
 
 
 class ManageScreenMixin:
+    def _abort_reshape_tool(self):
+        """Cancel the active vertex-reshape session, if any.
+
+        QGIS owns the temporary vertex crosses.  Ending the session by
+        switching to Pan is what removes them reliably; merely hiding the
+        Manage screen can leave those canvas items behind.
+        """
+        cancel = getattr(self, "_active_reshape_cancel", None)
+        if not callable(cancel):
+            return
+        self._active_reshape_cancel = None
+        try:
+            cancel()
+        except Exception:
+            try:
+                self.iface.actionPan().trigger()
+                self.iface.mapCanvas().refresh()
+            except Exception:
+                pass
+
     def _abort_move_tool(self):
         """Disarm a pending "Move feature" click-to-move tool. Called when the
         user navigates away (Back, tab switch, dock hide) so the next canvas
@@ -600,13 +620,22 @@ class ManageScreenMixin:
                 return da.convertAreaMeasurement(da.measureArea(g),
                                                  QgsUnitTypes.AreaUnit.SquareMeters)
 
+            # The statutory sub_habitat_type deliberately stores Buildings as
+            # Developed land; sealed surface. Include the display/style field
+            # in the merge identity so a building can merge with another
+            # building, but never with adjacent hardstanding.
+            display_field = ("Baseline Habitat Type"
+                             if layer_key == "baseline_area"
+                             else "Proposed Habitat Type")
+            merge_fields = KEY_FIELDS + (display_field,)
+
             feats, attrs, groups = {}, {}, {}
             names = [fl.name() for fl in layer.fields() if fl.name() != "fid"]
             for f in layer.getFeatures():
                 g = _valid(f.geometry())
                 if g is None or g.isEmpty():
                     continue
-                key = tuple(_s(f, n) for n in KEY_FIELDS)
+                key = tuple(_s(f, n) for n in merge_fields)
                 feats[f.id()] = g
                 # Captured now, while the feature still exists — the undo entry
                 # re-adds the dropped parcels from these. fid is excluded: the
@@ -939,6 +968,10 @@ class ManageScreenMixin:
             cache_key = (layer.id(),
                          str(feat["sub_habitat_type"] or "")
                          if feat.fieldNameIndex("sub_habitat_type") >= 0 else "",
+                         str(feat["Baseline Habitat Type"] or "")
+                         if feat.fieldNameIndex("Baseline Habitat Type") >= 0 else "",
+                         str(feat["Proposed Habitat Type"] or "")
+                         if feat.fieldNameIndex("Proposed Habitat Type") >= 0 else "",
                          str(feat["condition"] or "")
                          if feat.fieldNameIndex("condition") >= 0 else "",
                          str(feat["retention"] or "")
@@ -1644,6 +1677,7 @@ class ManageScreenMixin:
             from .habitat_data import (
                 HABITAT_TYPES, HABITAT_SCREEN_TYPES,
                 IRREPLACEABLE_SUBTYPES, condition_items_for,
+                canonical_habitat_name,
             )
             from .layer_manager import (
                 STRATEGIC_SIGNIFICANCE_OPTIONS,
@@ -1686,6 +1720,24 @@ class ManageScreenMixin:
             feature_sub_type = str(feat["sub_habitat_type"] or "")                 if feat.fieldNameIndex("sub_habitat_type") >= 0 else ""
             feature_prop_top_type = str(feat["prop_habitat_type"] or feat["habitat_type"] or "")                 if feat.fieldNameIndex("prop_habitat_type") >= 0 else feature_top_type
             feature_prop_sub_type = str(feat["prop_sub_habitat_type"] or feat["sub_habitat_type"] or "")                 if feat.fieldNameIndex("prop_sub_habitat_type") >= 0 else feature_sub_type
+            # Display-only area aliases (currently Buildings) live in the QML
+            # fields while the lower-case fields retain the statutory metric
+            # habitat. Reopen the editor using the visible map label so an edit
+            # cannot silently turn a building back into red hardstanding.
+            if hab_key == "area":
+                current_style_field = ("Proposed Habitat Type" if is_proposed
+                                       else "Baseline Habitat Type")
+                idx = feat.fieldNameIndex(current_style_field)
+                if idx >= 0:
+                    visible_sub = str(feat[current_style_field] or "").strip()
+                    if visible_sub in HABITAT_TYPES.get(feature_top_type, {}):
+                        feature_sub_type = visible_sub
+                if not is_proposed:
+                    idx = feat.fieldNameIndex("Proposed Habitat Type")
+                    if idx >= 0:
+                        visible_prop = str(feat["Proposed Habitat Type"] or "").strip()
+                        if visible_prop in HABITAT_TYPES.get(feature_prop_top_type, {}):
+                            feature_prop_sub_type = visible_prop
 
             # Inputs (combos, line edits), the dropdown chevron and the popup
             # lists all come from the shared theme stylesheet applied to the
@@ -2070,7 +2122,8 @@ class ManageScreenMixin:
                     layer.changeAttributeValue(fid, idx, value)
 
             hab_type  = _val("habitat_type")           or _field("habitat_type")
-            sub_type  = _val("sub_habitat_type")      or _field("sub_habitat_type")
+            display_sub = _val("sub_habitat_type")   or feature_sub_type
+            sub_type  = canonical_habitat_name(display_sub)
             condition = _val("condition")              or _field("condition")
             # Retention is derived (spatial net for areas; pair_id / presence for
             # hedges, trees, watercourses), never edited here — preserve whatever
@@ -2078,7 +2131,7 @@ class ManageScreenMixin:
             retention = _field("retention")
 
             # Re-derive habitat_key from the (possibly changed) type/sub
-            hab_key_derived = HABITAT_TYPES.get(hab_type, {}).get(sub_type, {}).get("key", _field("habitat_key"))
+            hab_key_derived = HABITAT_TYPES.get(hab_type, {}).get(display_sub, {}).get("key", _field("habitat_key"))
 
             _set("habitat_type",           hab_type)
             _set("sub_habitat_type",       sub_type)
@@ -2096,17 +2149,19 @@ class ManageScreenMixin:
             if is_proposed:
                 # Proposed-only feature: habitat_type/sub_habitat_type ARE the
                 # proposed values — write them into the QML "Proposed" style fields
-                _set("Proposed Habitat Type",  sub_type)
-                _set("Proposed Hedge Type",    sub_type)
-                _set("Proposed River Type",    sub_type)
+                _set("Proposed Habitat Type",  display_sub)
+                _set("Proposed Hedge Type",    display_sub)
+                _set("Proposed River Type",    display_sub)
                 _set("Proposed Condition",     condition)
                 _set("Retention Category",     retention)
             else:
                 # Baseline feature: also carry proposed pair if present
                 prop_type = _val("prop_habitat_type")      or hab_type
-                prop_sub  = _val("prop_sub_habitat_type")  or sub_type
+                display_prop_sub = (_val("prop_sub_habitat_type")
+                                    or feature_prop_sub_type or display_sub)
+                prop_sub  = canonical_habitat_name(display_prop_sub)
                 prop_cond = _val("prop_condition")         or condition
-                prop_key  = HABITAT_TYPES.get(prop_type, {}).get(prop_sub, {}).get("key", hab_key_derived)
+                prop_key  = HABITAT_TYPES.get(prop_type, {}).get(display_prop_sub, {}).get("key", hab_key_derived)
 
                 _set("prop_habitat_type",      prop_type)
                 _set("prop_sub_habitat_type",  prop_sub)
@@ -2114,12 +2169,12 @@ class ManageScreenMixin:
                 _set("prop_habitat_key",       prop_key)
 
                 # ── QML style fields ──
-                _set("Baseline Habitat Type",  sub_type)
-                _set("Proposed Habitat Type",  prop_sub)
-                _set("Baseline Hedge Type",    sub_type)
-                _set("Proposed Hedge Type",    prop_sub)
-                _set("Baseline River Type",    sub_type)
-                _set("Proposed River Type",    prop_sub)
+                _set("Baseline Habitat Type",  display_sub)
+                _set("Proposed Habitat Type",  display_prop_sub)
+                _set("Baseline Hedge Type",    display_sub)
+                _set("Proposed Hedge Type",    display_prop_sub)
+                _set("Baseline River Type",    display_sub)
+                _set("Proposed River Type",    display_prop_sub)
                 _set("Baseline Condition",     condition)
                 _set("Proposed Condition",     prop_cond)
                 _set("Retention Category",     retention)
@@ -2357,11 +2412,31 @@ class ManageScreenMixin:
             # 44 vegetated gardens in a row is unreadable and makes everything
             # below it unreachable without a lot of scrolling.
             FOLD_AT = 5
+
+            def _display_sub(feature):
+                """Manage Features label, preserving display-only habitats.
+
+                Metric-facing fields remain canonical; only the area layer's
+                QML style field is consulted here so Buildings is recognisable
+                in this map-management screen.
+                """
+                if key in ("baseline_area", "proposed_area"):
+                    style_field = ("Baseline Habitat Type"
+                                   if key == "baseline_area"
+                                   else "Proposed Habitat Type")
+                    if feature.fieldNameIndex(style_field) >= 0:
+                        value = feature[style_field]
+                        if value and str(value).strip():
+                            return str(value).strip()
+                if feature.fieldNameIndex("sub_habitat_type") >= 0:
+                    value = feature["sub_habitat_type"]
+                    if value and str(value).strip():
+                        return str(value).strip()
+                return ""
+
             counts = {}
             for _f_ in features:
-                _s_ = (str(_f_["sub_habitat_type"]).strip()
-                       if _f_.fieldNameIndex("sub_habitat_type") >= 0
-                       and _f_["sub_habitat_type"] else "")
+                _s_ = _display_sub(_f_)
                 if _s_:
                     counts[_s_] = counts.get(_s_, 0) + 1
             folds = {}
@@ -2430,7 +2505,7 @@ class ManageScreenMixin:
 
                 label_val = _f("label")
                 ftype_val = _f("ftype")
-                sub_val   = _f("sub_habitat_type")
+                sub_val   = _display_sub(feat)
                 cond_val  = _f("condition")
                 ret_val   = _f("retention")
                 ref_val   = _f("habitat_ref")
@@ -2649,7 +2724,10 @@ class ManageScreenMixin:
                 # ── Size readout (area for polygons, length for lines) ──
                 if meas_text:
                     meas_lbl = QLabel(meas_text)
-                    meas_lbl.setFixedWidth(50)
+                    # 50 px clipped values such as "0.036 ha" at the panel's
+                    # normal 12 px font. Keep a stable column, but make it wide
+                    # enough for the full unit.
+                    meas_lbl.setFixedWidth(62)
                     meas_lbl.setStyleSheet(
                         "color:#1A2420; font-size:12px; font-weight:500;"
                         " border:none; background:transparent; padding:0;"
@@ -2773,6 +2851,10 @@ class ManageScreenMixin:
                     reshape_btn.setStyleSheet(_action_qss)
                     def _make_reshape(lyr, feature_id, row_widget):
                         def _do_reshape():
+                            # Starting a new reshape must fully cancel any
+                            # previous session first, otherwise QGIS can leave
+                            # its old vertex crosses stuck on the canvas.
+                            self._abort_reshape_tool()
                             from qgis.core import (
                                 QgsExpressionContext,
                                 QgsExpressionContextUtils,
@@ -3023,6 +3105,8 @@ class ManageScreenMixin:
                                 if finished[0]:
                                     return
                                 finished[0] = True
+                                if getattr(self, "_active_reshape_cancel", None) is _cancel:
+                                    self._active_reshape_cancel = None
                                 _remove_right_click_filter()
                                 _remove_vertex_overlay()
                                 restore_reshape_snapping()
@@ -3088,6 +3172,8 @@ class ManageScreenMixin:
                                 if finished[0]:
                                     return
                                 finished[0] = True
+                                if getattr(self, "_active_reshape_cancel", None) is _cancel:
+                                    self._active_reshape_cancel = None
                                 _remove_right_click_filter()
                                 _remove_vertex_overlay()
                                 restore_reshape_snapping()
@@ -3097,6 +3183,8 @@ class ManageScreenMixin:
                                 canvas.setSelectionColor(orig_sel_color)
                                 self.iface.actionPan().trigger()
                                 self.iface.mapCanvas().refresh()
+
+                            self._active_reshape_cancel = _cancel
 
                             if (orig_geom and not orig_geom.isNull()
                                     and getattr(self, "_proposed_mapping", False)):

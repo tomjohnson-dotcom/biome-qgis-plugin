@@ -259,6 +259,45 @@ _LOCAL_RADIUS_SETTINGS = {
     "tpo": ("biome/local_search/tpo_outer", 200),
     "standing_water": ("biome/local_search/pond_outer", 500),
 }
+
+# Water-body classes included by the Desk Study standing-water search.  The
+# ecologically useful default is deliberately narrow: JNCC separates flowing
+# rivers/streams from standing waters, while UKHab's broader "standing open
+# water and canals" can also include canals and permanently wet ditches.
+STANDING_WATER_TYPES = (
+    ("ponds", "Ponds and pools"),
+    ("lakes", "Lakes, lochs and meres"),
+    ("reservoirs", "Reservoirs"),
+    ("canals", "Canals"),
+    ("ditches", "Ditches and drains"),
+    ("rivers", "Rivers and streams"),
+    ("other", "Other or unclassified water"),
+)
+_STANDING_WATER_TYPES_SETTING = "biome/standing_water/enabled_types"
+_STANDING_WATER_TYPES_DEFAULT = {"ponds", "lakes"}
+
+
+def get_standing_water_types():
+    """Return the saved water-body classes included in the map search."""
+    allowed = {key for key, _label in STANDING_WATER_TYPES}
+    try:
+        from qgis.core import QgsSettings
+        settings = QgsSettings()
+        if not settings.contains(_STANDING_WATER_TYPES_SETTING):
+            return set(_STANDING_WATER_TYPES_DEFAULT)
+        raw = settings.value(_STANDING_WATER_TYPES_SETTING, "", type=str) or ""
+        return {part for part in raw.split("|") if part in allowed}
+    except Exception:
+        return set(_STANDING_WATER_TYPES_DEFAULT)
+
+
+def set_standing_water_types(values):
+    """Persist enabled water-body classes in stable display order."""
+    from qgis.core import QgsSettings
+    selected = set(values or [])
+    ordered = [key for key, _label in STANDING_WATER_TYPES if key in selected]
+    QgsSettings().setValue(
+        _STANDING_WATER_TYPES_SETTING, "|".join(ordered))
 _POND_INNER_RADIUS_SETTING = "biome/local_search/pond_inner"
 _POND_INNER_RADIUS_DEFAULT = 250
 

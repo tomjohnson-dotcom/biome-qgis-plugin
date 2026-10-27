@@ -6,7 +6,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QGroupBox, QTextEdit, QLineEdit,
     QScrollArea, QFrame, QInputDialog, QDoubleSpinBox, QSpinBox,
-    QCheckBox, QButtonGroup, QSizePolicy, QAbstractSpinBox,
+    QCheckBox, QButtonGroup, QSizePolicy, QAbstractSpinBox, QMessageBox,
 )
 from qgis.PyQt.QtCore import QTimer, Qt, QSize
 from qgis.PyQt.QtGui import QFont, QColor, QCursor
@@ -19,7 +19,8 @@ from qgis.core import (
 from qgis.gui import QgsMapTool, QgsRubberBand
 from .habitat_data import (HABITAT_TYPES, CONDITION_OPTIONS,
                            HABITAT_SCREEN_TYPES, IRREPLACEABLE_SUBTYPES,
-                           is_condition_locked, condition_items_for)
+                           is_condition_locked, condition_items_for,
+                           canonical_habitat_name)
 from .layer_manager import (TREE_SIZE_AREAS, tree_size_from_sub_type,
                             tree_location_from_sub_type,
                             is_redline_name, REDLINE_NAME_ALIASES,
@@ -1314,60 +1315,41 @@ class HabitatFormScreen(QWidget):
         layout.addWidget(self.done_btn)
         layout.addWidget(self.status_label)
 
-        # ── Residential curtilage warning — at the BOTTOM of the form ──
-        if self.phase == "proposed" and self.habitat_key in ("trees", "hedgerow"):
-            warn_frame = QFrame()
-            warn_frame.setStyleSheet(
-                "QFrame { background: #FBF6E6; border: 1px solid #C99A06; border-radius: 6px; }"
+        # Buildings are a Biome display-only distinction: they receive their
+        # own charcoal roof symbol and legend item, but the statutory metric
+        # has no separate Buildings row. Keep that relationship visible at the
+        # point of entry so the user cannot mistake the map label for a new
+        # metric habitat.
+        self._buildings_metric_banner = None
+        if self.habitat_key == "area":
+            buildings_banner = QFrame()
+            buildings_banner.setObjectName("buildingsMetricBanner")
+            buildings_banner.setStyleSheet(
+                "QFrame#buildingsMetricBanner { background:#EEF3F1;"
+                " border:1px solid #AAB8B0; border-radius:7px; }"
             )
-            warn_layout = QVBoxLayout(warn_frame)
-            warn_layout.setContentsMargins(10, 8, 10, 8)
-            warn_layout.setSpacing(4)
-
-            warn_title = QLabel("⚠️  Residential Curtilage")
-            warn_title.setWordWrap(True)
-            warn_title.setStyleSheet("font-weight: 500; color: #9A6700; border: none;")
-            warn_layout.addWidget(warn_title)
-
-            warn_text = QLabel(
-                "Trees and hedgerows placed within the residential curtilage do not "
-                "add units to the BNG metric, however they will appear to in the BNG "
-                "units summary on this tool. Please refer to the Statutory Biodiversity "
-                "Metric User Guide for further guidance."
+            bml = QHBoxLayout(buildings_banner)
+            bml.setContentsMargins(10, 9, 10, 9)
+            bml.setSpacing(8)
+            bm_icon = QLabel()
+            bm_icon.setFixedSize(16, 16)
+            bm_icon.setPixmap(theme.icon("info-circle", "#355744", 16).pixmap(QSize(16, 16)))
+            bm_icon.setStyleSheet("background:transparent; border:none;")
+            bm_text = QLabel(
+                "<b>Buildings are mapped separately for display.</b><br>"
+                "For all BNG metric calculations and exports, they are counted "
+                "as <b>Developed land; sealed surface</b>."
             )
-            warn_text.setWordWrap(True)
-            warn_text.setStyleSheet("color: #4e342e; font-size: 11px; border: none;")
-            warn_layout.addWidget(warn_text)
-
-            layout.addWidget(warn_frame)
-
-        if self.phase == "proposed" and self.habitat_key == "area":
-            warn_frame_area = QFrame()
-            warn_frame_area.setStyleSheet(
-                "QFrame { background: #FBF6E6; border: 1px solid #C99A06; border-radius: 6px; }"
+            bm_text.setWordWrap(True)
+            bm_text.setTextFormat(Qt.TextFormat.RichText)
+            bm_text.setStyleSheet(
+                "color:#355744; font-size:11px; background:transparent; border:none;"
             )
-            warn_layout_area = QVBoxLayout(warn_frame_area)
-            warn_layout_area.setContentsMargins(10, 8, 10, 8)
-            warn_layout_area.setSpacing(4)
-
-            warn_title_area = QLabel("⚠️  Residential Curtilage — Habitat Type")
-            warn_title_area.setWordWrap(True)
-            warn_title_area.setStyleSheet("font-weight: 500; color: #9A6700; border: none;")
-            warn_layout_area.addWidget(warn_title_area)
-
-            warn_text_area = QLabel(
-                "Any habitat within a private residential garden must be recorded as "
-                "\"Vegetated garden\" or \"Unvegetated garden\" regardless of what is "
-                "planted. You cannot assign higher-value habitats (e.g. grassland, "
-                "meadow, scrub) within the residential curtilage — the statutory metric "
-                "does not permit this. See the Statutory Biodiversity Metric User Guide "
-                "for further guidance."
-            )
-            warn_text_area.setWordWrap(True)
-            warn_text_area.setStyleSheet("color: #4e342e; font-size: 11px; border: none;")
-            warn_layout_area.addWidget(warn_text_area)
-
-            layout.addWidget(warn_frame_area)
+            bml.addWidget(bm_icon, 0, Qt.AlignmentFlag.AlignTop)
+            bml.addWidget(bm_text, 1)
+            buildings_banner.setVisible(False)
+            self._buildings_metric_banner = buildings_banner
+            layout.addWidget(buildings_banner)
 
         layout.addStretch()
         inner.setLayout(layout)
@@ -1503,6 +1485,21 @@ class HabitatFormScreen(QWidget):
                 self._cond_lock_note.setText(
                     "Condition is set automatically for this habitat type — "
                     "it isn't assessed under the metric.")
+        self._sync_buildings_metric_banner()
+
+    def _sync_buildings_metric_banner(self):
+        """Show the metric-alias note whenever Buildings is being entered."""
+        banner = getattr(self, "_buildings_metric_banner", None)
+        if banner is None:
+            return
+        current = (self.sub_combo.currentText().strip()
+                   if getattr(self, "sub_combo", None) is not None else "")
+        proposed = ""
+        prop_group = getattr(self, "proposed_group", None)
+        if prop_group is not None and prop_group.isVisible():
+            combo = getattr(self, "prop_sub_combo", None)
+            proposed = combo.currentText().strip() if combo is not None else ""
+        banner.setVisible(current == "Buildings" or proposed == "Buildings")
 
     def _apply_encroachment_combos(self, sub):
         """Constrain the three watercourse encroachment combos by type.
@@ -1565,6 +1562,7 @@ class HabitatFormScreen(QWidget):
         self._apply_condition_combo(self.prop_condition_combo, sub, prev)
 
         self._prop_cond_toggle_btn.setVisible(CD.has_panel(sub) and not is_condition_locked(sub))
+        self._sync_buildings_metric_banner()
 
     def _toggle_prop_cond_helper(self):
         """Open the read-only condition GOALS view for the proposed habitat —
@@ -2415,6 +2413,10 @@ class HabitatFormScreen(QWidget):
         water_enc, rip_l, rip_r, comments, hab_ref, prop_type, prop_sub, prop_cond.
         """
         extra = extra or {}
+        display_sub = str(sub_type or "").strip()
+        metric_sub = canonical_habitat_name(display_sub)
+        display_prop_sub = str(extra.get("prop_sub") or "").strip()
+        metric_prop_sub = canonical_habitat_name(display_prop_sub)
 
         def s(name, val):
             idx = layer.fields().indexFromName(name)
@@ -2422,7 +2424,7 @@ class HabitatFormScreen(QWidget):
                 layer.changeAttributeValue(fid, idx, val)
 
         s("habitat_type",                   hab_type)
-        s("sub_habitat_type",               sub_type)
+        s("sub_habitat_type",               metric_sub)
         s("habitat_key",                    hab_key)
         s("condition",                      condition)
         s("condition_detail",               extra.get("condition_detail", ""))
@@ -2445,24 +2447,24 @@ class HabitatFormScreen(QWidget):
             s("habitat_ref",                extra["hab_ref"])
         if extra.get("prop_type"):
             s("prop_habitat_type",          extra["prop_type"])
-        if extra.get("prop_sub"):
-            s("prop_sub_habitat_type",      extra["prop_sub"])
+        if display_prop_sub:
+            s("prop_sub_habitat_type",      metric_prop_sub)
         if extra.get("prop_cond"):
             s("prop_condition",             extra["prop_cond"])
         # QML style fields
-        s("Baseline Habitat Type",          sub_type)
-        s("Proposed Habitat Type",          sub_type)
-        s("Baseline Hedge Type",            sub_type)
-        s("Proposed Hedge Type",            sub_type)
-        s("Baseline River Type",            sub_type)
-        s("Proposed River Type",            sub_type)
+        s("Baseline Habitat Type",          display_sub)
+        s("Proposed Habitat Type",          display_sub)
+        s("Baseline Hedge Type",            display_sub)
+        s("Proposed Hedge Type",            display_sub)
+        s("Baseline River Type",            display_sub)
+        s("Proposed River Type",            display_sub)
         s("Baseline Condition",             condition)
         s("Proposed Condition",             condition)
         s("Retention Category",             retention)
         # Tree QML style fields — derived from sub_type
         if self.habitat_key == "trees":
-            tree_size     = tree_size_from_sub_type(sub_type)
-            tree_location = tree_location_from_sub_type(sub_type)
+            tree_size     = tree_size_from_sub_type(metric_sub)
+            tree_location = tree_location_from_sub_type(metric_sub)
             s("Category",                       "Existing" if self.phase == "baseline" else "Proposed")
             s("Baseline Tree Size",             tree_size)
             s("Baseline Rural or Urban Tree",   tree_location)
@@ -2792,6 +2794,21 @@ class HabitatFormScreen(QWidget):
             pass
 
     def _start_drawing(self):
+        # Freeze the classification before QGIS changes layer/editing state.
+        # Reading the combo only from featureAdded is unsafe: a panel refresh
+        # can briefly clear its model while the map tool is active, producing
+        # a valid geometry whose habitat fields are NULL.
+        selected_hab_type = self.habitat_type_combo.currentText().strip()
+        selected_sub_type = self.sub_combo.currentText().strip()
+        if not selected_hab_type or not selected_sub_type:
+            QMessageBox.warning(
+                self, "Select a habitat",
+                "Choose a habitat type and sub-habitat type before drawing."
+            )
+            return
+        self._drawing_hab_type = selected_hab_type
+        self._drawing_sub_type = selected_sub_type
+
         target_phase = self.phase
         layer_key    = self._layer_key(target_phase)
         try:
@@ -2967,6 +2984,34 @@ class HabitatFormScreen(QWidget):
 
     # ── Trees (multi-point, session stays open) ───────────────────────
 
+    _CURTILAGE_WARNING_PROPERTY = "residential_curtilage_warning_shown"
+
+    def _is_first_proposed_placement(self):
+        """Return True only before the project's first proposed feature."""
+        if self.phase != "proposed":
+            return False
+        project = QgsProject.instance()
+        warning_shown, _ok = project.readBoolEntry(
+            "Biome", self._CURTILAGE_WARNING_PROPERTY, False)
+        if warning_shown:
+            return False
+        return True
+
+    def _show_first_proposed_curtilage_warning(self):
+        """Show and persist the one-off residential-curtilage reminder."""
+        QgsProject.instance().writeEntry(
+            "Biome", self._CURTILAGE_WARNING_PROPERTY, True)
+        QMessageBox.warning(
+            self,
+            "Residential Curtilage — Habitat Type",
+            "Any habitat within a private residential garden must be recorded as "
+            "\"Vegetated garden\" or \"Unvegetated garden\", regardless of what is "
+            "planted. You cannot assign higher-value habitats (e.g. grassland, "
+            "meadow, or scrub) within the residential curtilage, as the statutory "
+            "metric does not permit this. See the Statutory Biodiversity Metric "
+            "User Guide for further guidance."
+        )
+
     def _on_tree_added(self, fid):
         """
         Called immediately when QGIS adds the point to the edit buffer.
@@ -2976,6 +3021,7 @@ class HabitatFormScreen(QWidget):
         layer = self._active_layer
         if layer is None:
             return
+        show_curtilage_warning = self._is_first_proposed_placement()
 
         # Disconnect FIRST to prevent re-entrancy: commitChanges() and
         # startEditing() can both fire featureAdded on some QGIS/OGR
@@ -2986,8 +3032,8 @@ class HabitatFormScreen(QWidget):
             pass
 
         # Snapshot form values before any async work
-        hab_type      = self.habitat_type_combo.currentText()
-        sub_type      = self.sub_combo.currentText()
+        hab_type      = getattr(self, "_drawing_hab_type", "") or self.habitat_type_combo.currentText()
+        sub_type      = getattr(self, "_drawing_sub_type", "") or self.sub_combo.currentText()
         condition     = self.condition_combo.currentText()
         # Retention is no longer entered by hand. Baseline trees are auto-set
         # Retained (a Retained proposed twin is created below when paired
@@ -3015,12 +3061,13 @@ class HabitatFormScreen(QWidget):
         from qgis.PyQt.QtCore import QTimer as _QT
         _QT.singleShot(0, lambda: self._complete_tree_added(
             layer, hab_type, sub_type, hab_key, condition, retention, extra,
-            prop_type, prop_sub, prop_cond
+            prop_type, prop_sub, prop_cond, show_curtilage_warning
         ))
 
     def _complete_tree_added(self, layer, hab_type, sub_type, hab_key,
                               condition, retention, extra,
-                              prop_type, prop_sub, prop_cond):
+                              prop_type, prop_sub, prop_cond,
+                              show_curtilage_warning=False):
         """Deferred continuation of _on_tree_added — runs after QGIS finishes addFeature."""
         if not layer or not layer.isEditable():
             return
@@ -3081,6 +3128,8 @@ class HabitatFormScreen(QWidget):
         self.status_label.setText("✅ Tree placed. Click to add more, or press Done.")
         layer.triggerRepaint()
         self.iface.mapCanvas().refresh()
+        if show_curtilage_warning and bl_fid is not None:
+            self._show_first_proposed_curtilage_warning()
 
     def _install_tree_right_click_filter(self):
         """Install a viewport event filter on the map canvas to detect
@@ -3195,6 +3244,7 @@ class HabitatFormScreen(QWidget):
         layer = self._active_layer
         if layer is None:
             return
+        show_curtilage_warning = self._is_first_proposed_placement()
 
         # Drawing is over (right-click finished the line) — drop the label.
         self._remove_live_measure()
@@ -3205,8 +3255,8 @@ class HabitatFormScreen(QWidget):
             pass
 
         # Snapshot form values
-        hab_type  = self.habitat_type_combo.currentText()
-        sub_type  = self.sub_combo.currentText()
+        hab_type  = getattr(self, "_drawing_hab_type", "") or self.habitat_type_combo.currentText()
+        sub_type  = getattr(self, "_drawing_sub_type", "") or self.sub_combo.currentText()
         condition = self.condition_combo.currentText()
         # Retention is no longer entered by hand. Areas derive it from the
         # spatial net of baseline vs proposed polygons (stored blank). Hedgerows
@@ -3241,13 +3291,15 @@ class HabitatFormScreen(QWidget):
         from qgis.PyQt.QtCore import QTimer as _QT2
         _QT2.singleShot(0, lambda: self._complete_feature_added(
             layer, hab_type, sub_type, hab_key, condition, retention, extra,
-            prop_type, prop_sub, prop_cond, _drawn_geom
+            prop_type, prop_sub, prop_cond, _drawn_geom,
+            show_curtilage_warning
         ))
 
     def _complete_feature_added(self, layer, hab_type, sub_type, hab_key,
                                  condition, retention, extra,
                                  prop_type, prop_sub, prop_cond,
-                                 drawn_geom=None):
+                                 drawn_geom=None,
+                                 show_curtilage_warning=False):
         """Deferred continuation of _on_feature_added — runs after QGIS finishes addFeature."""
         if not layer or not layer.isEditable():
             return
@@ -3557,6 +3609,9 @@ class HabitatFormScreen(QWidget):
                 snapshot["prop_tree_location"]= self.prop_tree_location_combo.currentText() if hasattr(self, "prop_tree_location_combo") else ""
             self._main_panel.push_recent_habitat(self.phase, snapshot)
 
+        if show_curtilage_warning and bl_fids:
+            self._show_first_proposed_curtilage_warning()
+
         if self._shape_continuous:
             self._rearm_shape()
             return
@@ -3860,6 +3915,10 @@ class HabitatFormScreen(QWidget):
         the geometry subtraction uses the edit-buffer geometry directly.
         """
         extra     = extra or {}
+        display_sub = str(sub_type or "").strip()
+        metric_sub = canonical_habitat_name(display_sub)
+        display_prop_sub = str(extra.get("prop_sub") or "").strip()
+        metric_prop_sub = canonical_habitat_name(display_prop_sub)
         bl_key    = self._layer_key("baseline")
         try:
             bl_layer = self.layer_manager.get_or_create_layer(bl_key)
@@ -3871,7 +3930,7 @@ class HabitatFormScreen(QWidget):
                 return None, None
             raise
 
-        hab_key_val = HABITAT_TYPES.get(hab_type, {}).get(sub_type, {}).get("key", "")
+        hab_key_val = HABITAT_TYPES.get(hab_type, {}).get(display_sub, {}).get("key", "")
         feat = QgsFeature(bl_layer.fields())
 
         feat.setGeometry(geom)
@@ -3882,7 +3941,7 @@ class HabitatFormScreen(QWidget):
                 feat.setAttribute(idx, val)
 
         s("habitat_type",                   hab_type)
-        s("sub_habitat_type",               sub_type)
+        s("sub_habitat_type",               metric_sub)
         s("habitat_key",                    hab_key_val)
         s("condition",                      condition)
         s("condition_detail",               extra.get("condition_detail", ""))
@@ -3898,12 +3957,12 @@ class HabitatFormScreen(QWidget):
             s("habitat_ref",                extra["hab_ref"])
         if extra.get("prop_type"):
             s("prop_habitat_type",          extra["prop_type"])
-        if extra.get("prop_sub"):
-            s("prop_sub_habitat_type",      extra["prop_sub"])
+        if display_prop_sub:
+            s("prop_sub_habitat_type",      metric_prop_sub)
         if extra.get("prop_cond"):
             s("prop_condition",             extra["prop_cond"])
-        s("Baseline Habitat Type",          sub_type)
-        s("Proposed Habitat Type",          extra.get("prop_sub") or sub_type)
+        s("Baseline Habitat Type",          display_sub)
+        s("Proposed Habitat Type",          display_prop_sub or display_sub)
         s("Baseline Condition",             condition)
         s("Proposed Condition",             extra.get("prop_cond") or condition)
         s("Retention Category",             retention)
@@ -3959,6 +4018,8 @@ class HabitatFormScreen(QWidget):
         buffer needed — permanent immediately).  Returns (fid, layer).
         """
         extra      = extra or {}
+        display_sub = str(sub_type or "").strip()
+        metric_sub = canonical_habitat_name(display_sub)
         prop_key   = self._layer_key("proposed")
         try:
             prop_layer = self.layer_manager.get_or_create_layer(prop_key)
@@ -3972,7 +4033,7 @@ class HabitatFormScreen(QWidget):
                 )
                 return None, None
             raise
-        hab_key    = HABITAT_TYPES.get(hab_type, {}).get(sub_type, {}).get("key", "")
+        hab_key    = HABITAT_TYPES.get(hab_type, {}).get(display_sub, {}).get("key", "")
 
         feat   = QgsFeature(prop_layer.fields())
 
@@ -3984,7 +4045,7 @@ class HabitatFormScreen(QWidget):
                 feat.setAttribute(idx, val)
 
         s("habitat_type",                   hab_type)
-        s("sub_habitat_type",               sub_type)
+        s("sub_habitat_type",               metric_sub)
         s("habitat_key",                    hab_key)
         s("condition",                      condition)
         s("retention",                      retention)
@@ -4009,19 +4070,19 @@ class HabitatFormScreen(QWidget):
             s("riparian_encroachment_l",    extra["rip_l"])
         if extra.get("rip_r"):
             s("riparian_encroachment_r",    extra["rip_r"])
-        s("Baseline Habitat Type",          sub_type)
-        s("Proposed Habitat Type",          sub_type)
-        s("Baseline Hedge Type",            sub_type)
-        s("Proposed Hedge Type",            sub_type)
-        s("Baseline River Type",            sub_type)
-        s("Proposed River Type",            sub_type)
+        s("Baseline Habitat Type",          display_sub)
+        s("Proposed Habitat Type",          display_sub)
+        s("Baseline Hedge Type",            display_sub)
+        s("Proposed Hedge Type",            display_sub)
+        s("Baseline River Type",            display_sub)
+        s("Proposed River Type",            display_sub)
         s("Baseline Condition",             condition)
         s("Proposed Condition",             condition)
         s("Retention Category",             retention)
         # Tree QML style fields — derived from sub_type
         if self.habitat_key == "trees":
-            tree_size     = tree_size_from_sub_type(sub_type)
-            tree_location = tree_location_from_sub_type(sub_type)
+            tree_size     = tree_size_from_sub_type(metric_sub)
+            tree_location = tree_location_from_sub_type(metric_sub)
             s("Category",                       "Proposed")
             s("Baseline Tree Size",             tree_size)
             s("Baseline Rural or Urban Tree",   tree_location)

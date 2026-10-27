@@ -557,6 +557,22 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             attrs["retention"] = ""                 # net-classified — leave blank
             attrs["Retention Category"] = ""
             attrs["pair_id"] = ""
+            # Carry the display-only identity into the target phase. The
+            # metric field remains canonical (Buildings = developed land),
+            # while the phase-specific QML field drives the separate map
+            # symbol and Manage Features label.
+            source_style_field = ("Baseline Habitat Type"
+                                  if src_key == "baseline_area"
+                                  else "Proposed Habitat Type")
+            target_style_field = ("Proposed Habitat Type"
+                                  if flip_phase == "proposed"
+                                  else "Baseline Habitat Type")
+            try:
+                visible_habitat = str(src_feat[source_style_field] or "").strip()
+            except Exception:
+                visible_habitat = ""
+            if visible_habitat and target_style_field in tgt_names:
+                attrs[target_style_field] = visible_habitat
         else:
             attrs["retention"] = "Retained"         # linked twin = retained
             attrs["Retention Category"] = "Retained"
@@ -630,6 +646,16 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
                 level=Qgis.MessageLevel.Critical, duration=8)
             return
         new_fid = added[0].id()
+        if is_area:
+            # Older proposed layers may pre-date the display-only Buildings
+            # category. Add it in-process so the copied feature renders now,
+            # without replacing any existing customised symbology.
+            try:
+                renderer = target_layer.renderer().clone()
+                LayerManager._ensure_buildings_category(renderer)
+                target_layer.setRenderer(renderer)
+            except Exception:
+                pass
         target_layer.reload(); target_layer.updateExtents(); target_layer.triggerRepaint()
 
         # Stamp the shared pair_id on the SOURCE too (trees/hedges/water only) so
@@ -1974,6 +2000,12 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             self._abort_move_tool()
         except Exception:
             pass
+        # Manage screen's native QGIS vertex-reshape session. Switching to
+        # Pan here also removes temporary vertex crosses from the canvas.
+        try:
+            self._abort_reshape_tool()
+        except Exception:
+            pass
         # Pond placement (Desk Study).
         try:
             tool = getattr(self, "_pond_tool", None)
@@ -3289,6 +3321,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         # Leaving the Manage screen with a "Move feature" click pending: disarm
         # it so the next canvas click can't silently relocate the feature.
         self._abort_move_tool()
+        self._abort_reshape_tool()
         # Leaving the Manage screen: run the deferred summary recompute once,
         # now that the balance/BNG/phase widgets will be visible again.
         self._flush_manage_changes()

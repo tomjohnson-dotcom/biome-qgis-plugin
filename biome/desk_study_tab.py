@@ -1235,6 +1235,19 @@ class DeskStudyMixin:
         self._irz_url_btn.clicked.connect(self._open_irz_url)
         irz_vl.addWidget(self._irz_url_btn)
 
+        self._irz_copy_clear_btn = _tool_btn(
+            "Copy confirmed no-consultation image", "copy", color="#2F6940",
+            tooltip=(
+                "Use only after the Natural England page confirms that consultation "
+                "is not required. Copies a report-ready image to the clipboard."
+            ),
+        )
+        self._irz_copy_clear_btn.setVisible(False)
+        self._irz_copy_clear_btn.clicked.connect(
+            self._copy_irz_no_consultation_banner
+        )
+        irz_vl.addWidget(self._irz_copy_clear_btn)
+
         from qgis.PyQt.QtWidgets import QLabel as _QL
         _irz_info = _QL(
             "<span style='font-size:10px;color:#54635A'>"
@@ -3251,7 +3264,7 @@ class DeskStudyMixin:
         if not ok:
             if result == "no_results":
                 QMessageBox.information(self, "EPSL",
-                    "No granted EPSL licences found within the search radius of the redline centroid.")
+                    "None found within 2 km.")
             else:
                 QMessageBox.critical(self, "EPSL Load Failed", result)
             self._epsl_btn.setChecked(False)
@@ -4775,6 +4788,34 @@ class DeskStudyMixin:
                 "https://naturalengland-defra.opendata.arcgis.com/datasets/"
                 "Defra::sssi-impact-risk-zones-england/explore"
             ))
+        # Biome cannot inspect or verify the result shown by the external NE
+        # page. Revealing this action only after the page is opened keeps the
+        # user responsible for confirming the displayed outcome before copy.
+        self._irz_copy_clear_btn.setVisible(True)
+
+    def _copy_irz_no_consultation_banner(self):
+        """Copy the report banner after the user has checked the NE result."""
+        import os
+        from qgis.PyQt.QtGui import QImage
+        from qgis.PyQt.QtWidgets import QApplication, QMessageBox
+
+        path = os.path.join(
+            os.path.dirname(__file__), "illustrations",
+            "sssi_no_consultation_banner.png",
+        )
+        image = QImage(path)
+        if image.isNull():
+            QMessageBox.warning(
+                self, "Copy failed",
+                "The no-consultation banner image could not be loaded.",
+            )
+            return
+
+        QApplication.clipboard().setImage(image)
+        _flash_copied(
+            self._irz_copy_clear_btn,
+            "Copy confirmed no-consultation image",
+        )
 
     def _run_lws_report(self):
         """Generate and display the LWS report table."""

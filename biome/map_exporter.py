@@ -4071,7 +4071,7 @@ def _build_desk_study_legend(legend_item, layers, map_type):
             model.refreshLayerLegend(tree_lyr)
             nodes = model.layerLegendNodes(tree_lyr)
             if nodes:
-                nodes[0].setUserLabel("EPSL licence location — none found")
+                nodes[0].setUserLabel("None found within 2 km")
 
     if map_type == "TPO Map":
         for lyr in specific_lyrs:
@@ -4383,7 +4383,13 @@ def _get_desk_study_layers(project, map_type):
         for lyr in project.mapLayers().values():
             if lyr.name() in (_EPSL_LAYER_NAME, _EPSL_LINES_NAME):
                 node = root.findLayer(lyr.id())
-                if node is not None and _node_visible_recursive(node):
+                empty_epsl = (
+                    lyr.name() == _EPSL_LAYER_NAME
+                    and lyr.featureCount() == 0
+                    and bool(lyr.customProperty(
+                        "biome_empty_epsl_search", 0)))
+                if node is not None and (
+                        _node_visible_recursive(node) or empty_epsl):
                     specific.append(lyr)
         # Ensure lines render beneath points: sort so lines come last in specific
         specific.sort(key=lambda l: 0 if l.name() == _EPSL_LINES_NAME else 1)

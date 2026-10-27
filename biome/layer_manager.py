@@ -1148,6 +1148,52 @@ class LayerManager:
     #  STYLING                                                             #
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _build_buildings_symbol():
+        """Charcoal roof symbol for the display-only Buildings habitat."""
+        from qgis.core import QgsLinePatternFillSymbolLayer
+        symbol = QgsFillSymbol.createSimple({
+            "color": "#555C59",
+            "outline_color": "#303633",
+            "outline_width": "0.45",
+        })
+        hatch = QgsLinePatternFillSymbolLayer.create({
+            "angle": "45",
+            "color": "#C7CDCA",
+            "distance": "2.6",
+            "distance_unit": "MM",
+            "line_width": "0.24",
+            "line_width_unit": "MM",
+        })
+        if hatch is not None:
+            symbol.appendSymbolLayer(hatch)
+        return symbol
+
+    @staticmethod
+    def _ensure_buildings_category(renderer):
+        """Add the display-only Buildings category to an area renderer.
+
+        The feature's QML field contains ``Buildings`` while its internal
+        ``sub_habitat_type`` remains ``Developed land; sealed surface``. This
+        keeps the map/legend distinction entirely separate from metric logic.
+        """
+        from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory
+        if not isinstance(renderer, QgsCategorizedSymbolRenderer):
+            return renderer
+        try:
+            field = str(renderer.classAttribute() or "")
+        except Exception:
+            field = ""
+        if field not in ("Baseline Habitat Type", "Proposed Habitat Type"):
+            return renderer
+        if any(str(cat.value()).strip() == "Buildings"
+               for cat in renderer.categories()):
+            return renderer
+        renderer.addCategory(QgsRendererCategory(
+            "Buildings", LayerManager._build_buildings_symbol(), "Buildings"
+        ))
+        return renderer
+
     QML_STYLES = {
         "baseline_area":     "Habitats baseline.qml",
         "proposed_area":     "Habitats proposed.qml",
@@ -1192,6 +1238,7 @@ class LayerManager:
                 if os.path.exists(qml_path):
                     msg, ok = layer.loadNamedStyle(qml_path)
                     if ok:
+                        self._ensure_buildings_category(layer.renderer())
                         if layer_key == "proposed_trees":
                             r = layer.renderer().clone()
                             self._greenify_created_trees(r)
@@ -1213,6 +1260,7 @@ class LayerManager:
         if isinstance(existing_renderer, (QgsCategorizedSymbolRenderer,
                                           QgsGraduatedSymbolRenderer,
                                           QgsRuleBasedRenderer)):
+            self._ensure_buildings_category(existing_renderer)
             return
         self._apply_fallback_style(layer, layer_key)
 
@@ -1223,17 +1271,22 @@ class LayerManager:
         geom        = self._geom_type(layer_key)
         is_proposed = layer_key.startswith("proposed")
         categories  = []
+        area_field = ("Proposed Habitat Type" if is_proposed
+                      else "Baseline Habitat Type")
         for hab_type, subtypes in HABITAT_TYPES.items():
             for sub_name, meta in subtypes.items():
                 color = QColor(meta["color"])
                 if is_proposed:
                     color.setAlpha(160)
                 if geom == "Polygon":
-                    symbol = QgsFillSymbol.createSimple({
-                        "color":         color.name(QColor.NameFormat.HexArgb),
-                        "outline_color": "#444444",
-                        "outline_width": "0.26",
-                    })
+                    if sub_name == "Buildings":
+                        symbol = self._build_buildings_symbol()
+                    else:
+                        symbol = QgsFillSymbol.createSimple({
+                            "color":         color.name(QColor.NameFormat.HexArgb),
+                            "outline_color": "#444444",
+                            "outline_width": "0.26",
+                        })
                 elif geom == "LineString":
                     symbol = QgsLineSymbol.createSimple({
                         "color": color.name(), "width": "0.8",
@@ -1244,10 +1297,11 @@ class LayerManager:
                         "size":          "3",
                         "outline_color": "#333333",
                     })
-                categories.append(
-                    QgsRendererCategory(meta["key"], symbol, f"{meta['key']} – {sub_name}")
-                )
-        layer.setRenderer(QgsCategorizedSymbolRenderer("habitat_key", categories))
+                value = sub_name if geom == "Polygon" else meta["key"]
+                label = sub_name if geom == "Polygon" else f"{meta['key']} – {sub_name}"
+                categories.append(QgsRendererCategory(value, symbol, label))
+        renderer_field = area_field if geom == "Polygon" else "habitat_key"
+        layer.setRenderer(QgsCategorizedSymbolRenderer(renderer_field, categories))
 
     # ------------------------------------------------------------------ #
     #  BUILT-IN STYLE (placer styling) — crash-safe rebuild from the QML   #
@@ -1302,6 +1356,7 @@ class LayerManager:
             _msg, ok = tmp.loadNamedStyle(qml_path)
             renderer = tmp.renderer()
             if ok and renderer is not None:
+                LayerManager._ensure_buildings_category(renderer)
                 out = renderer.clone()
                 if layer_key == "proposed_trees":
                     LayerManager._greenify_created_trees(out)

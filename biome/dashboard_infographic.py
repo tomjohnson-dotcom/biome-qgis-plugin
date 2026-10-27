@@ -111,6 +111,8 @@ def render_infographic(panel, payload, scale=2):
     slots_by_mod = v["slots_by_mod"]
     outstanding, slot_total = v["outstanding"], v["slot_total"]
     short_by_mod, compliant = v["short_by_mod"], v["compliant"]
+    required_by_mod = v["required_by_mod"]
+    net_gap_by_mod = v["net_gap_by_mod"]
     quality = (payload or {}).get("quality") or {}
     movers = (payload or {}).get("movers") or []
     split = (payload or {}).get("split") or (0, 0, 0, 0)
@@ -324,13 +326,16 @@ def render_infographic(panel, payload, scale=2):
         if not scored:
             chip(cx, cy, "created habitat only", theme.MUTED, theme.SUNKEN)
     else:
-        order = [m for m in sorted(short_by_mod, key=lambda k: -short_by_mod[k])]
+        order = [m for m in sorted(
+            required_by_mod, key=lambda k: -required_by_mod[k])]
         if not order:
             order = [m for m in scored if mods[m]["pct"] < 10.0]
         met = [panel._DASH_TITLES[m].lower() for m in scored if m not in order]
         n_out = len(outstanding)
         sub_bits = []
-        if slot_total:
+        if slot_total and n_out == 0:
+            sub_bits.append("Trading obligations met ✓")
+        elif slot_total:
             sub_bits.append("%d of %d obligation%s outstanding"
                             % (n_out, slot_total,
                                "" if slot_total == 1 else "s"))
@@ -349,13 +354,13 @@ def render_infographic(panel, payload, scale=2):
             # The slot shortfalls (which already include the +10% headroom via
             # the free-choice slot); belt-and-braces fall back to the raw gap
             # to target so a below-target module never prints 0.00.
-            need = short_by_mod.get(m)
+            need = required_by_mod.get(m)
             if need is None:
                 dm = mods[m]
                 need = max(0.0, dm.get("bl_on", dm["bl"]) * 1.10
                            - (dm["pr"] or 0.0))
             fm = setf(34, w=QFont.Weight.DemiBold, tabular=True)
-            ns = "%.2f" % need
+            ns = "<0.01" if 0.0 < need < 0.01 else "%.2f" % need
             nw = fm.horizontalAdvance(ns)
             txt(nx, y + 18 + 16 + 8, nw + 4, 40, AL, ns, theme.BAD)
             fm2 = setf(10.5, "Inter Medium", QFont.Weight.Medium)
@@ -363,6 +368,10 @@ def render_infographic(panel, payload, scale=2):
             txt(nx, y + 18 + 16 + 8 + 40, max(nw, fm2.horizontalAdvance(lab)),
                 16, AL, lab, theme.MUTED)
             nx += max(nw, fm2.horizontalAdvance(lab)) + 34
+        if (order and net_gap_by_mod.get(order[0], 0.0) > 1e-9
+                and short_by_mod.get(order[0], 0.0) <= 0.005):
+            sub_bits.append("below +10% net gain")
+            sub = "  ·  ".join(sub_bits)
         setf(11)
         txt(tx, y + hero_h - 16 - 20, tw, 20, AL,
             elide(setf(11), sub, tw), theme.FAINT)

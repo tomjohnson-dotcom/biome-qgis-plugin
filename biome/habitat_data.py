@@ -18,6 +18,22 @@
 #       }
 #   }
 
+# Display-only habitat labels which Biome may show on maps and in its habitat
+# picker, but which are not separate rows in the statutory biodiversity metric.
+# Features selected with one of these labels are stored/scored/exported using
+# the canonical metric habitat on the right. The QML display fields retain the
+# label on the left so the map and legend can distinguish it.
+DISPLAY_ONLY_HABITAT_ALIASES = {
+    "Buildings": "Developed land; sealed surface",
+}
+
+
+def canonical_habitat_name(name):
+    """Return the statutory metric habitat for a Biome display label."""
+    clean = str(name or "").strip()
+    return DISPLAY_ONLY_HABITAT_ALIASES.get(clean, clean)
+
+
 HABITAT_TYPES = {
 
     # ── GRASSLAND — metric broad habitat: Grassland ──
@@ -130,6 +146,9 @@ HABITAT_TYPES = {
     # ── URBAN — metric broad habitat: Urban ──
     "Urban": {
         "Developed land; sealed surface":                                        {"key": "UR-DS", "color": "#EC2244"},
+        # Display-only UKHab distinction. Stored and scored as UR-DS; the
+        # charcoal colour is used only for the picker fallback swatch.
+        "Buildings":                                                             {"key": "UR-DS", "color": "#555C59"},
         "Artificial unvegetated, unsealed surface":                              {"key": "UR-AU", "color": "#EC2244"},
         "Built linear features":                                                 {"key": "UR-BL", "color": "#9E9E9E"},
         "Vacant or derelict land":                                               {"key": "UR-VD", "color": "#BCAAA4"},
@@ -334,6 +353,7 @@ NOT_ASSESSED_SUBTYPES = {
 # in G-8 — only "N/A - Other" (column H, value 0) is permitted.
 NA_OTHER_SUBTYPES = {
     "Developed land; sealed surface",
+    "Buildings",
     "Artificial unvegetated, unsealed surface",
     "Built linear features",
     "Unvegetated garden",
@@ -759,6 +779,7 @@ DISTINCTIVENESS_SCORES = {
     "Sustainable drainage system":              2,
     # V.Low (0)
     "Developed land; sealed surface":           0,
+    "Buildings":                                0,
     "Artificial unvegetated, unsealed surface": 0,
     "Built linear features":                    0,
     "Unvegetated garden":                       0,

@@ -2233,9 +2233,16 @@ def query_epsl_2km(easting, northing, redline_geom=None):
             "f":                 "json",
         })
         try:
-            resp = urlopen(f"{_EPSL_QUERY_URL}?{params}", timeout=20)
+            # MAGIC occasionally stalls rather than returning an empty result.
+            # Keep the Desk Study responsive; a timeout is presented to the
+            # user as no mapped licences found, not as a blocking load failure.
+            resp = urlopen(f"{_EPSL_QUERY_URL}?{params}", timeout=6)
             data = json.loads(resp.read().decode("utf-8"))
         except Exception as exc:
+            if (isinstance(exc, (TimeoutError,))
+                    or "timed out" in str(exc).lower()
+                    or "timeout" in str(exc).lower()):
+                return []
             raise RuntimeError(f"EPSL query failed: {exc}")
 
         if "error" in data:
@@ -4900,6 +4907,7 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
     Returns (True, layer) on success, (False, reason_str) on failure.
     """
     import json
+    import math
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from urllib.request import urlopen, Request
     from urllib.parse import urlencode
@@ -4909,8 +4917,10 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
         QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     )
     from qgis.PyQt.QtGui import QColor
+    from .config import get_standing_water_types
 
     RADIUS = _search_radius("standing_water", 500)
+    enabled_types = get_standing_water_types()
 
     search_buffer = _build_search_buffer(easting, northing, redline_geom, RADIUS)
     bb = search_buffer.boundingBox()
@@ -4922,6 +4932,42 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
     dp = lyr.dataProvider()
     qfeats = []
     seen_geoms = []  # higher-priority sources win where polygons overlap
+
+    def _water_class(label, geom=None):
+        """Normalise provider labels to the user-facing water classes."""
+        text = str(label or "").lower().replace("_", " ")
+        if any(word in text for word in ("ditch", "drain", "dyke")):
+            return "ditches"
+        if "canal" in text:
+            return "canals"
+        if any(word in text for word in ("river", "stream", "watercourse")):
+            return "rivers"
+        if "reservoir" in text:
+            return "reservoirs"
+        if any(word in text for word in ("pond", "pool")):
+            return "ponds"
+        if any(word in text for word in ("lake", "loch", "mere")):
+            return "lakes"
+
+        # OS Open Zoomstack identifies polygons only as surface water. Separate
+        # broad, compact water bodies from narrow flowing-water polygons, then
+        # use the usual 2 ha pond/lake threshold. Ambiguous shapes remain Other.
+        if geom is not None:
+            try:
+                area = float(geom.area())
+                perimeter = float(geom.length())
+                compactness = ((4.0 * math.pi * area) / (perimeter * perimeter)
+                               if area > 0 and perimeter > 0 else 0.0)
+                if compactness < 0.06:
+                    return "rivers"
+                if compactness >= 0.12:
+                    return "ponds" if area <= 20000.0 else "lakes"
+            except Exception:
+                pass
+        return "other"
+
+    def _include(label, geom=None):
+        return _water_class(label, geom) in enabled_types
 
     def _is_duplicate(qg):
         """Treat substantially coincident polygons as the same water body.
@@ -4996,6 +5042,7 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
         f"[out:json][timeout:10];("
         f'way["natural"="water"]{ob};'
         f'way["water"~"pond|lake|reservoir|basin"]{ob};'
+        f'way["waterway"~"riverbank|river|stream|canal|ditch|drain"]{ob};'
         f");out tags geom;"
     )
     osm_req = Request(
@@ -5108,7 +5155,8 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
                 continue
             qg = _polygon_geometry(feat.get("geometry", {}) or {})
             if (qg is None or qg.isEmpty() or
-                    not search_buffer.intersects(qg) or _is_duplicate(qg)):
+                    not search_buffer.intersects(qg) or _is_duplicate(qg)
+                    or not _include(description, qg)):
                 continue
             qf = QgsFeature(lyr.fields())
             qf.setGeometry(qg)
@@ -5134,7 +5182,8 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
                 continue
 
             if (qg.isEmpty() or not search_buffer.intersects(qg)
-                    or _is_duplicate(qg)):
+                    or _is_duplicate(qg)
+                    or not _include(str(props.get("type", "") or ""), qg)):
                 continue
 
             qf = QgsFeature(lyr.fields())
@@ -5172,7 +5221,10 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
                 continue
 
             tags       = elem.get("tags", {})
-            water_type = tags.get("water", tags.get("natural", "water"))
+            water_type = tags.get(
+                "water", tags.get("waterway", tags.get("natural", "water")))
+            if not _include(water_type, qg):
+                continue
             qf = QgsFeature(lyr.fields())
             qf.setGeometry(qg)
             qf.setAttributes(["OSM", water_type])
@@ -5197,6 +5249,8 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
                     continue
                 attrs = item.get("attributes", {}) or {}
                 water_type = str(attrs.get("MainHabs") or "Priority pond")
+                if not _include(water_type, qg):
+                    continue
                 qf = QgsFeature(lyr.fields())
                 qf.setGeometry(qg)
                 qf.setAttributes(["Natural England PHI", water_type[:80]])
@@ -5247,6 +5301,8 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
                 if _is_duplicate(qg):
                     continue
                 hab = str(props.get("HABITAT_NAME") or "Standing water")[:80]
+                if not _include(hab, qg):
+                    continue
                 qf = QgsFeature(lyr.fields())
                 qf.setGeometry(qg)
                 qf.setAttributes(["HabMoS", hab])

@@ -693,6 +693,7 @@ class SummaryWidgetsMixin:
 
         outstanding, covered_n, slot_total = [], 0, 0
         short_by_mod = {}
+        net_gap_by_mod = {}
         for m in active:
             rows = slots_by_mod[m].get("slots") or []
             for s in rows:
@@ -706,8 +707,22 @@ class SummaryWidgetsMixin:
             tot = sum(s["short"] for s in (slots_by_mod[m].get("slots") or []))
             if tot > 0.005:
                 short_by_mod[m] = tot
+            dm = mods[m]
+            bl_on = dm.get("bl_on", dm.get("bl") or 0.0) or 0.0
+            net_gap = max(
+                0.0,
+                bl_on * 0.10
+                - ((dm.get("pr") or 0.0) - (dm.get("bl") or 0.0)),
+            )
+            if net_gap > 1e-9:
+                net_gap_by_mod[m] = net_gap
         outstanding.sort(key=lambda t: -t[1]["short"])
         total_short = sum(short_by_mod.values())
+        required_by_mod = {
+            m: max(short_by_mod.get(m, 0.0), net_gap_by_mod.get(m, 0.0))
+            for m in active
+            if max(short_by_mod.get(m, 0.0), net_gap_by_mod.get(m, 0.0)) > 1e-9
+        }
 
         scored = [m for m in active if mods[m]["pct"] is not None]
         empty = not active
@@ -716,6 +731,8 @@ class SummaryWidgetsMixin:
         return {"mods": mods, "active": active, "slots_by_mod": slots_by_mod,
                 "outstanding": outstanding, "covered_n": covered_n,
                 "slot_total": slot_total, "short_by_mod": short_by_mod,
+                "net_gap_by_mod": net_gap_by_mod,
+                "required_by_mod": required_by_mod,
                 "total_short": total_short, "scored": scored,
                 "empty": empty, "compliant": compliant}
 
@@ -740,6 +757,8 @@ class SummaryWidgetsMixin:
         mods, active = v["mods"], v["active"]
         slots_by_mod, outstanding = v["slots_by_mod"], v["outstanding"]
         slot_total, short_by_mod = v["slot_total"], v["short_by_mod"]
+        net_gap_by_mod = v["net_gap_by_mod"]
+        required_by_mod = v["required_by_mod"]
         total_short, scored = v["total_short"], v["scored"]
         empty, compliant = v["empty"], v["compliant"]
 
@@ -780,14 +799,23 @@ class SummaryWidgetsMixin:
             d["ok_sub"].setText(" · ".join(parts))
         else:
             # One figure per short module, biggest first.
-            order = [m for m in sorted(short_by_mod, key=lambda k: -short_by_mod[k])
-                     if short_by_mod[m] > 0.005]
+            order = sorted(required_by_mod,
+                           key=lambda k: -required_by_mod[k])
             if not order:
                 order = [m for m in scored if mods[m]["pct"] < 10.0][:1]
             lead = order[0] if order else None
-            self._dash_animate_number(
-                d["hero_num"], short_by_mod.get(lead, total_short) if lead
-                else total_short)
+            hero_need = required_by_mod.get(lead, total_short) if lead else total_short
+            if 0.0 < hero_need < 0.01:
+                # Preserve the real small shortfall instead of rounding it to
+                # the misleading value 0.00.
+                d["hero_num"]._dash_val = hero_need
+                prev = getattr(d["hero_num"], "_dash_anim", None)
+                if prev is not None:
+                    prev.stop()
+                    d["hero_num"]._dash_anim = None
+                d["hero_num"].setText("<0.01")
+            else:
+                self._dash_animate_number(d["hero_num"], hero_need)
             d["hero_unit"].setText(
                 f"{self._DASH_TITLES[lead].lower()} units\nrequired" if lead
                 else "units\nrequired")
@@ -799,12 +827,17 @@ class SummaryWidgetsMixin:
                 num.setVisible(m is not None)
                 unit.setVisible(m is not None)
                 if m is not None:
-                    num.setText(f"{short_by_mod[m]:.2f}")
+                    need = required_by_mod.get(m, 0.0)
+                    num.setText("<0.01" if 0.0 < need < 0.01
+                                else f"{need:.2f}")
                     unit.setText(f"{self._DASH_TITLES[m].lower()} units\n"
                                  f"required")
             n_out = len(outstanding)
-            bits = [f"{n_out} of {slot_total} obligation"
-                    f"{'s' if slot_total != 1 else ''} outstanding"]
+            if slot_total and n_out == 0:
+                bits = ["Trading obligations met ✓"]
+            else:
+                bits = [f"{n_out} of {slot_total} obligation"
+                        f"{'s' if slot_total != 1 else ''} outstanding"]
             # The metric reports TWO different area shortfalls in two different
             # places, and quoting only one made the panel look like it
             # disagreed with the export:
@@ -812,18 +845,17 @@ class SummaryWidgetsMixin:
             #     what is delivered.
             #   * Trading Summary   -> the TRADING floor, the per-band deficit
             #     left after higher-distinctiveness units have traded down.
-            # The hero is the trading floor because it is the binding one
-            # (units that satisfy trading also close the net-gain gap, but not
-            # the reverse), so name the other rather than leave it to be
-            # discovered in the spreadsheet.
+            # The hero shows whichever requirement needs more units. Name the
+            # distinction below when trading and net gain differ.
             if lead:
-                dm = mods.get(lead) or {}
-                bl_on = dm.get("bl_on", dm.get("bl") or 0.0) or 0.0
-                gain_gap = max(0.0, bl_on * 0.10
-                               - ((dm.get("pr") or 0.0) - (dm.get("bl") or 0.0)))
-                if gain_gap > 0.005 and abs(gain_gap - short_by_mod.get(lead, 0.0)) > 0.005:
+                gain_gap = net_gap_by_mod.get(lead, 0.0)
+                trading_gap = short_by_mod.get(lead, 0.0)
+                if gain_gap > 1e-9 and trading_gap <= 0.005:
+                    bits.append("below +10% net gain")
+                if (trading_gap > 0.005 and gain_gap > 0.005
+                        and abs(gain_gap - trading_gap) > 0.005):
                     bits.append(f"{gain_gap:.2f} u short on net gain, "
-                                f"{short_by_mod[lead]:.2f} u on trading rules")
+                                f"{trading_gap:.2f} u on trading rules")
             # Name what IS met, rather than repeating the shortfalls above.
             met = [self._DASH_TITLES[m].lower() for m in scored
                    if m not in order]
