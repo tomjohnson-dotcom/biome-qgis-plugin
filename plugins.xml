@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <pyqgis_plugin name="Biome" version="2.10.3">
+  <pyqgis_plugin name="Biome" version="2.10.4">
     <description><![CDATA[Biome — BNG habitat mapping tool for QGIS]]></description>
     <about><![CDATA[Biome is a comprehensive Biodiversity Net Gain (BNG) habitat mapping plugin for QGIS. Stylised EPSL species icons are derived from game-icons.net (Lorc, Delapouite) under CC BY 3.0.
 
@@ -20,7 +20,7 @@ It supports the full statutory BNG workflow under Schedule 7A of the Environment
 • Photo documentation tab
 
 Data is stored in a GeoPackage alongside the QGIS project file. Requires a saved .qgz project to function.]]></about>
-    <version>2.10.3</version>
+    <version>2.10.4</version>
     <qgis_minimum_version>3.22</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <author_name>Tom Johnson</author_name>
@@ -33,7 +33,7 @@ Data is stored in a GeoPackage alongside the QGIS project file. Requires a saved
     <file_name>biome.zip</file_name>
     <experimental>False</experimental>
     <deprecated>False</deprecated>
-    <create_date>2026-10-26</create_date>
-    <update_date>2026-10-26</update_date>
+    <create_date>2026-10-27</create_date>
+    <update_date>2026-10-27</update_date>
   </pyqgis_plugin>
 </plugins>
