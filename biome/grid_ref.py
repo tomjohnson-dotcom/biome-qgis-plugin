@@ -4,6 +4,25 @@
 
 import re
 
+
+def parse_lat_lon(text):
+    """Return ``(latitude, longitude)`` for a decimal coordinate pair.
+
+    The Navigate box follows the order copied by Google Maps: latitude first,
+    longitude second.  A comma or semicolon is required so ordinary addresses
+    containing two numbers are never mistaken for coordinates.
+    """
+    number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+    match = re.fullmatch(
+        rf"\s*({number})\s*[,;]\s*({number})\s*", str(text or ""))
+    if not match:
+        return None
+    latitude, longitude = (float(value) for value in match.groups())
+    if not (-90.0 <= latitude <= 90.0 and
+            -180.0 <= longitude <= 180.0):
+        return None
+    return latitude, longitude
+
 # 500km square origins (easting, northing) relative to OSGB false origin
 _GRID_500 = {
     'S': (0,       0),

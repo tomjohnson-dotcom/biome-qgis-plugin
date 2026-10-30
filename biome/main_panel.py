@@ -2223,7 +2223,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         sr = QHBoxLayout()
         sr.setSpacing(6)
         smart_inp = QLineEdit()
-        smart_inp.setPlaceholderText("Grid ref, address or postcode…")
+        smart_inp.setPlaceholderText("Grid ref, coordinates or address…")
         smart_inp.setFixedHeight(32)
         smart_inp.setStyleSheet(
             "QLineEdit { border:1px solid #C9D1C9; border-radius:7px;"
@@ -2254,8 +2254,10 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             "QPushButton:hover { background:#2E6B4F; }"
         )
         go.clicked.connect(self._smart_search)
-        self._wire_hint(go, "Zoom to a grid reference (e.g. SU 12345 67890), "
-                            "address or postcode")
+        self._wire_hint(
+            go,
+            "Zoom to a grid reference (e.g. SU 12345 67890), decimal "
+            "latitude/longitude, address or postcode")
         sr.addWidget(smart_inp, 1)
         sr.addWidget(go)
         nb.addLayout(sr)
@@ -3408,9 +3410,8 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         canvas.refresh()
 
     def _smart_search(self):
-        """Single search box: if the text parses as a British National Grid
-        reference, zoom to it; otherwise treat it as an address/postcode."""
-        from .grid_ref import grid_ref_to_osgb36
+        """Navigate directly to coordinates, or geocode an address/postcode."""
+        from .grid_ref import grid_ref_to_osgb36, parse_lat_lon
         text = self.grid_ref_input.text().strip()
         if not text:
             return
@@ -3418,7 +3419,15 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         self.grid_ref_status.setVisible(False)
         self.addr_status.setVisible(False)
         self.search_results_list.setVisible(False)
-        if grid_ref_to_osgb36(text) is not None:
+        lat_lon = parse_lat_lon(text)
+        if lat_lon is not None:
+            latitude, longitude = lat_lon
+            self._zoom_to_geocode_result({
+                "lat": latitude,
+                "lon": longitude,
+                "bbox": None,
+            })
+        elif grid_ref_to_osgb36(text) is not None:
             self._zoom_to_grid_ref()
         else:
             self._zoom_to_address()
@@ -3432,10 +3441,12 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         self._suggest_timer.start()
 
     def _run_live_suggest(self):
-        from .grid_ref import grid_ref_to_osgb36
+        from .grid_ref import grid_ref_to_osgb36, parse_lat_lon
         text = self.grid_ref_input.text().strip()
-        # Grid refs zoom directly on Enter — no point suggesting for them.
-        if len(text) < 3 or grid_ref_to_osgb36(text) is not None:
+        # Coordinates and grid refs zoom directly on Enter, so do not send
+        # either to Photon as though they were address text.
+        if (len(text) < 3 or parse_lat_lon(text) is not None or
+                grid_ref_to_osgb36(text) is not None):
             return
         self._photon_search(text, live=True)
 
