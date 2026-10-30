@@ -3,7 +3,7 @@
 
 
 from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
-    QLineEdit, QScrollArea, QFormLayout, QMessageBox, QComboBox)
+    QLineEdit, QScrollArea, QFormLayout, QMessageBox, QComboBox, QSizePolicy)
 from qgis.PyQt.QtCore import (Qt, QSettings, QSize, QRectF)
 from qgis.PyQt.QtGui import (QPainter, QPainterPath, QColor, QPen)
 from qgis.core import Qgis
@@ -201,6 +201,12 @@ class ManageScreenMixin:
 
         prev = getattr(self, "_manage_screen_widget", None)
         in_place = prev is not None and self.stack.currentWidget() is prev
+
+        # A fresh visit reapplies the simple automatic rule (small habitat
+        # groups open, large ones closed). In-place rebuilds after an edit or
+        # delete retain the user's choices while they continue managing.
+        if not in_place:
+            self._manage_fold_states = {}
 
         # On an in-place rebuild, keep the list where it was scrolled to.
         if in_place and restore_scroll is None and hasattr(prev, "verticalScrollBar"):
@@ -948,12 +954,10 @@ class ManageScreenMixin:
 
         any_features = False
 
-        # Rebuilding the Manage screen after a delete used to recreate every
-        # fold button unchecked, closing the habitat the user was working
-        # through. Keep fold state on the panel (session-only) so repeated
-        # deletes remain in the same open group.
-        if not hasattr(self, "_manage_expanded_folds"):
-            self._manage_expanded_folds = set()
+        # Rebuilding after an edit/delete retains fold choices while the user
+        # stays on this screen. A new visit resets to the automatic threshold.
+        if not hasattr(self, "_manage_fold_states"):
+            self._manage_fold_states = {}
 
         # Baseline and proposed sections each share one phase-coloured panel.
         # Individual feature rows remain neutral so long lists are easier to
@@ -2364,7 +2368,7 @@ class ManageScreenMixin:
                         " border-radius:9px; }" % (_card_bg, _card_border))
                     phase_layout = QVBoxLayout(phase_panel)
                     phase_layout.setContentsMargins(8, 6, 8, 8)
-                    phase_layout.setSpacing(5)
+                    phase_layout.setSpacing(8)
                     layout.addWidget(phase_panel)
                     phase_layouts[phase_key] = phase_layout
                 section_layout = phase_layouts[phase_key]
@@ -2392,6 +2396,21 @@ class ManageScreenMixin:
                     _card_border = "#DCE8F2"
                     _card_hover = "#DEEAF7"
                     _card_hover_border = "#AFC8DF"
+
+            # Habitat groups use one quiet outer container so the heading and
+            # its feature cards read as a unit without introducing heavy boxes.
+            if _is_baseline_section:
+                _group_bg = "#FCFBFE"
+                _group_header_bg = "#E9E4F2"
+                _group_border = "#CFC7DD"
+            elif _is_proposed_section:
+                _group_bg = "#FBFEFC"
+                _group_header_bg = "#DFF0E7"
+                _group_border = "#B7D9C8"
+            else:
+                _group_bg = _card_bg
+                _group_header_bg = _card_hover
+                _group_border = _card_border
             # Section header
             hdr = QLabel(title.upper())
             hdr.setStyleSheet(
@@ -2408,10 +2427,10 @@ class ManageScreenMixin:
                 divider.setVisible(False)
             section_layout.addWidget(divider)
 
-            # Fold long runs of one habitat under a chevron. A section listing
-            # 44 vegetated gardens in a row is unreadable and makes everything
-            # below it unreachable without a lot of scrolling.
-            FOLD_AT = 5
+            # Every habitat type gets one clear group. Ordinary groups remain
+            # open for direct card-to-map hovering; only genuinely long groups
+            # start collapsed so they cannot dominate the screen.
+            AUTO_COLLAPSE_OVER = 10
 
             def _display_sub(feature):
                 """Manage Features label, preserving display-only habitats.
@@ -2435,66 +2454,191 @@ class ManageScreenMixin:
                 return ""
 
             counts = {}
+            grouped_features = {}
             for _f_ in features:
                 _s_ = _display_sub(_f_)
                 if _s_:
                     counts[_s_] = counts.get(_s_, 0) + 1
+                    grouped_features.setdefault(_s_, []).append(_f_)
             folds = {}
 
+            def _group_total_text(group):
+                """Return the combined area/length for a habitat group."""
+                from qgis.core import (QgsDistanceArea, QgsProject,
+                                       QgsUnitTypes, QgsWkbTypes)
+                if not group:
+                    return ""
+                da = QgsDistanceArea()
+                try:
+                    da.setSourceCrs(
+                        layer.crs(), QgsProject.instance().transformContext())
+                    da.setEllipsoid(measurement_ellipsoid())
+                except Exception:
+                    pass
+                try:
+                    geom_type = group[0].geometry().type()
+                    if geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
+                        measured = sum(abs(da.measureArea(f.geometry()))
+                                       for f in group if f.geometry()
+                                       and not f.geometry().isEmpty())
+                        ha = abs(da.convertAreaMeasurement(
+                            measured, QgsUnitTypes.AreaUnit.AreaHectares))
+                        if ha <= 0:
+                            return ""
+                        return (f"{ha * 10000.0:,.0f} m²"
+                                if ha < 0.01 else f"{ha:.3f} ha")
+                    if geom_type == QgsWkbTypes.GeometryType.LineGeometry:
+                        metres = sum(abs(da.measureLength(f.geometry()))
+                                     for f in group if f.geometry()
+                                     and not f.geometry().isEmpty())
+                        if metres <= 0:
+                            return ""
+                        return (f"{metres / 1000.0:.2f} km"
+                                if metres >= 1000 else f"{metres:.1f} m")
+                except Exception:
+                    pass
+                return ""
+
+            group_totals = {
+                sub: _group_total_text(group)
+                for sub, group in grouped_features.items()
+            }
+
+            def _fold_summary(sub, count):
+                total = group_totals.get(sub, "")
+                detail = "%d feature%s" % (count, "" if count == 1 else "s")
+                if total:
+                    detail += "  ·  " + total
+                return detail
+
             def _fold_target(sub):
-                """Where a row for *sub* belongs: the section layout, or a
-                collapsible box once there are more than FOLD_AT of them."""
-                if not sub or counts.get(sub, 0) <= FOLD_AT:
+                """Return the habitat-type group receiving this feature row."""
+                if not sub:
                     return section_layout
                 if sub in folds:
                     return folds[sub]
                 n = counts[sub]
                 fold_key = (layer.id(), sub)
+                default_expanded = n <= AUTO_COLLAPSE_OVER
+                expanded = self._manage_fold_states.get(
+                    fold_key, default_expanded)
+                group_panel = QFrame()
+                group_panel.setObjectName("manageHabitatGroup")
+                group_panel.setStyleSheet(
+                    "QFrame#manageHabitatGroup { background:%s;"
+                    " border:1px solid %s; border-radius:8px; }"
+                    % (_group_bg, _group_border))
+                group_layout = QVBoxLayout(group_panel)
+                group_layout.setContentsMargins(
+                    0, 0, 0, 6 if expanded else 0)
+                group_layout.setSpacing(5)
                 box = QWidget()
                 box.setStyleSheet("background:transparent;")
                 box_l = QVBoxLayout(box)
-                box_l.setContentsMargins(12, 0, 0, 0)
+                box_l.setContentsMargins(6, 0, 6, 0)
                 box_l.setSpacing(6)
-                box.setVisible(False)
+                box.setVisible(expanded)
 
-                btn = QPushButton("▸  %s  ·  %d features" % (sub, n))
+                btn = QPushButton()
                 btn.setCheckable(True)
+                btn.setMinimumHeight(62)
+                btn.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setAccessibleName(
+                    "%s, %s" % (sub, _fold_summary(sub, n)))
+                btn.setToolTip("%s · %s" % (sub, _fold_summary(sub, n)))
                 btn.setStyleSheet(
-                    "QPushButton { text-align:left; padding:7px 10px;"
-                    " border:1px solid %s; border-radius:6px;"
-                    " background:%s; color:%s; font-size:12px;"
-                    " font-weight:600; }"
+                    "QPushButton { text-align:left; padding:0;"
+                    " border:none; border-radius:7px;"
+                    " background:%s; color:%s; }"
                     "QPushButton:hover { background:%s; }"
-                    % (_card_border, _card_bg, theme.INK, _card_hover)
+                    % (_group_header_bg, theme.INK, _card_hover)
                 )
 
+                # A single text string cannot fit long habitat names, counts
+                # and totals inside the narrow dock. Use a real two-line layout
+                # so the name can wrap and the summary remains fully visible.
+                btn_layout = QVBoxLayout(btn)
+                btn_layout.setContentsMargins(10, 6, 10, 6)
+                btn_layout.setSpacing(2)
+                name_row = QHBoxLayout()
+                name_row.setContentsMargins(0, 0, 0, 0)
+                name_row.setSpacing(5)
+                arrow_lbl = QLabel()
+                arrow_lbl.setFixedSize(18, 20)
+                arrow_lbl.setAlignment(
+                    Qt.AlignmentFlag.AlignCenter)
+                arrow_lbl.setPixmap(_svg_pixmap(
+                    "chevron-down" if expanded else "chevron-right",
+                    theme.MUTED, 15))
+                arrow_lbl.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                arrow_lbl.setStyleSheet(
+                    "background:transparent; border:none;")
+                name_lbl = QLabel(sub)
+                name_lbl.setWordWrap(False)
+                name_lbl.setSizePolicy(
+                    QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                name_lbl.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                name_lbl.setStyleSheet(
+                    "background:transparent; border:none; color:%s;"
+                    " font-family:%s; font-size:13px; font-weight:400;"
+                    % (theme.INK, theme.FONT_SEMIBOLD))
+                name_row.addWidget(arrow_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+                name_row.addWidget(name_lbl, 1, Qt.AlignmentFlag.AlignVCenter)
+                btn_layout.addLayout(name_row)
+                summary_lbl = QLabel(_fold_summary(sub, n))
+                summary_lbl.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                summary_lbl.setStyleSheet(
+                    "background:transparent; border:none; color:%s;"
+                    " font-family:%s; font-size:12px; font-weight:400;"
+                    " padding-left:17px;"
+                    % (theme.MUTED, theme.FONT_MEDIUM))
+                btn_layout.addWidget(summary_lbl)
+
                 def _toggle(checked, b=btn, w=box, s=sub, count=n,
-                            state_key=fold_key):
+                            state_key=fold_key, arrow=arrow_lbl,
+                            layout_ref=group_layout):
                     w.setVisible(checked)
-                    b.setText("%s  %s  ·  %d features"
-                              % ("▾" if checked else "▸", s, count))
-                    if checked:
-                        self._manage_expanded_folds.add(state_key)
-                    else:
-                        self._manage_expanded_folds.discard(state_key)
+                    layout_ref.setContentsMargins(
+                        0, 0, 0, 6 if checked else 0)
+                    arrow.setPixmap(_svg_pixmap(
+                        "chevron-down" if checked else "chevron-right",
+                        theme.MUTED, 15))
+                    self._manage_fold_states[state_key] = bool(checked)
 
                 btn.toggled.connect(_toggle)
-                section_layout.addWidget(btn)
-                section_layout.addWidget(box)
-                # Restore only after the widgets are in the layout. setChecked
-                # emits toggled, updating visibility, chevron and state through
-                # the same path as an ordinary user click.
-                if fold_key in self._manage_expanded_folds:
-                    btn.setChecked(True)
+                group_layout.addWidget(btn)
+                group_layout.addWidget(box)
+                section_layout.addWidget(group_panel)
+                # Set the initial state without treating it as a manual choice.
+                btn.blockSignals(True)
+                btn.setChecked(expanded)
+                btn.blockSignals(False)
                 folds[sub] = box_l
                 return box_l
 
+            def _display_order(feature):
+                """Habitat type first, then largest feature within the group."""
+                sub = _display_sub(feature)
+                broad = ""
+                if feature.fieldNameIndex("habitat_type") >= 0:
+                    broad = str(feature["habitat_type"] or "")
+                geom = feature.geometry()
+                size = 0.0
+                if geom is not None and not geom.isEmpty():
+                    try:
+                        size = abs(geom.area() or geom.length())
+                    except Exception:
+                        size = 0.0
+                return (broad.casefold(), sub.casefold(), -size, feature.id())
+
             # Display order is independent of permanent provider feature IDs.
-            # This lets numbered boundary names close gaps after deletion, so a
-            # sole remaining boundary is always shown as Boundary 1.
             for feature_number, feat in enumerate(
-                    sorted(features, key=lambda feature: feature.id()), start=1):
+                    sorted(features, key=_display_order), start=1):
                 fid   = feat.id()
                 # Build a meaningful display label based on what fields are available
                 parts = []
@@ -2960,12 +3104,21 @@ class ManageScreenMixin:
                             edit_colour.setAlpha(0 if is_boundary else 82)
                             canvas.setSelectionColor(edit_colour)
 
-                            # Area reshape should snap cleanly to neighbouring
-                            # habitat edges and to the application redline. Keep
+                            # Manage-mode reshaping uses the same practical
+                            # snapping relationships as placement: area parcels
+                            # snap to neighbouring parcels and both boundaries;
+                            # red and blue boundaries snap to one another. Keep
                             # the user's full previous configuration and restore
                             # it when this one reshape session ends.
                             restore_reshape_snapping = lambda: None
+                            snap_keys = []
                             if key in ("baseline_area", "proposed_area"):
+                                snap_keys = [key, "redline", "site_boundary"]
+                            elif key == "redline":
+                                snap_keys = ["redline", "site_boundary"]
+                            elif key == "site_boundary":
+                                snap_keys = ["site_boundary", "redline"]
+                            if snap_keys:
                                 from qgis.core import (
                                     QgsSnappingConfig, QgsTolerance,
                                 )
@@ -2996,12 +3149,19 @@ class ManageScreenMixin:
                                             QgsSnappingConfig.SnappingType.VertexAndSegment,
                                             10, QgsTolerance.UnitType.Pixels))
 
-                                snap_cfg.setIndividualLayerSettings(
-                                    lyr, snap_setting)
-                                redline = self.layer_manager.get_layer("redline")
-                                if redline is not None and redline.isValid():
+                                snap_layers = []
+                                for snap_key in snap_keys:
+                                    snap_layer = (
+                                        lyr if snap_key == key
+                                        else self.layer_manager.get_layer(snap_key))
+                                    if (snap_layer is not None
+                                            and snap_layer.isValid()
+                                            and snap_layer.id() not in {
+                                                item.id() for item in snap_layers}):
+                                        snap_layers.append(snap_layer)
+                                for snap_layer in snap_layers:
                                     snap_cfg.setIndividualLayerSettings(
-                                        redline, snap_setting)
+                                        snap_layer, snap_setting)
                                 project.setSnappingConfig(snap_cfg)
                                 snapping_restored = [False]
 

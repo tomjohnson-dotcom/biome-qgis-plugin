@@ -204,7 +204,15 @@ def renumber_ponds_by_distance(lyr=None, redline_geom=None):
         rows.append((distance_m, _old_number(old_id), pt.x(), pt.y(),
                      feat.id(), old_id))
 
-    rows.sort(key=lambda row: row[:5])
+    # Once the user has explicitly reordered the manager list, keep that order
+    # authoritative while continuing to refresh the measured distances.  New
+    # ponds receive the next ID and therefore append naturally.
+    manual_order = str(lyr.customProperty(
+        "biome_manual_pond_order", "0")).lower() in ("1", "true")
+    if manual_order:
+        rows.sort(key=lambda row: (row[1], row[0], row[2], row[3], row[4]))
+    else:
+        rows.sort(key=lambda row: row[:5])
     if not rows:
         rebuild_pond_renderer(lyr)
         return {}
@@ -264,6 +272,57 @@ def renumber_ponds_by_distance(lyr=None, redline_geom=None):
         lyr.triggerRepaint()
     rebuild_pond_renderer(lyr)
     return id_changes
+
+
+def renumber_ponds_in_order(lyr, feature_ids):
+    """Assign SWB references in an explicit user-defined feature order.
+
+    Distances, grid references and geometries are deliberately untouched.  A
+    temporary ID pass avoids transient duplicate values when two existing
+    references exchange positions.
+    """
+    if lyr is None or not lyr.isValid():
+        return False
+    ensure_pond_fields(lyr)
+    pond_idx = lyr.fields().indexOf("pond_id")
+    if pond_idx < 0:
+        return False
+
+    existing = {int(f.id()) for f in lyr.getFeatures()}
+    ordered = [int(fid) for fid in feature_ids if int(fid) in existing]
+    if len(ordered) != len(existing) or len(set(ordered)) != len(existing):
+        return False
+
+    was_editing = lyr.isEditable()
+    if not was_editing and not lyr.startEditing():
+        return False
+
+    ok = True
+    for number, fid in enumerate(ordered, 1):
+        ok = bool(lyr.changeAttributeValue(
+            fid, pond_idx, f"__biome_swb_{number:04d}__")) and ok
+    for number, fid in enumerate(ordered, 1):
+        ok = bool(lyr.changeAttributeValue(
+            fid, pond_idx, f"SWB-{number:02d}")) and ok
+
+    if not was_editing:
+        if ok:
+            ok = bool(lyr.commitChanges())
+        if not ok:
+            lyr.rollBack()
+    if not ok:
+        return False
+
+    lyr.setCustomProperty("biome_manual_pond_order", "1")
+    try:
+        lyr.dataProvider().reloadData()
+        lyr.reload()
+    except Exception:
+        pass
+    rebuild_pond_renderer(lyr)
+    apply_pond_label_mode(lyr)
+    lyr.triggerRepaint()
+    return True
 
 
 # ── Pond layer ─────────────────────────────────────────────────────────────────

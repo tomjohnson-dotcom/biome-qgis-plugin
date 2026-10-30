@@ -4057,21 +4057,19 @@ def _build_desk_study_legend(legend_item, layers, map_type):
         if n.layer() and _is_desk_support_layer(n.layer().name())
     ]
 
-    # An empty EPSL search deliberately retains a styled zero-feature layer.
-    # Keep its marker in the key and label it explicitly, so an icon-free map
-    # clearly communicates "no licence locations found" rather than looking as
-    # though the licence layer/key was omitted accidentally.
+    # Empty EPSL searches may have no layer at all (or a hidden zero-feature
+    # layer after the search button resets). Add the result directly to the
+    # legend tree so it cannot disappear with that layer's visibility/state.
     if map_type == "EPSL Map":
-        for lyr in specific_lyrs:
-            if lyr.name() != _EPSL_LAYER_NAME or lyr.featureCount() != 0:
-                continue
-            tree_lyr = root.findLayer(lyr.id())
-            if tree_lyr is None:
-                continue
-            model.refreshLayerLegend(tree_lyr)
-            nodes = model.layerLegendNodes(tree_lyr)
-            if nodes:
-                nodes[0].setUserLabel("None found within 2 km")
+        epsl_layers = [lyr for lyr in specific_lyrs
+                       if lyr.name() == _EPSL_LAYER_NAME]
+        if not any(lyr.featureCount() > 0 for lyr in epsl_layers):
+            for lyr in epsl_layers:
+                tree_lyr = root.findLayer(lyr.id())
+                if tree_lyr is not None and tree_lyr.parent() is not None:
+                    tree_lyr.parent().removeChildNode(tree_lyr)
+            specific_lyrs = [lyr for lyr in specific_lyrs
+                             if lyr.name() != _EPSL_LAYER_NAME]
 
     if map_type == "TPO Map":
         for lyr in specific_lyrs:

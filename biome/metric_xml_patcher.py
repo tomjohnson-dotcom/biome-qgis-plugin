@@ -67,6 +67,42 @@ def _sheet_parts(zf):
     return out
 
 
+def _verify_sheet_inventory(template_path, out_path):
+    """Fail the export if any worksheet was lost from the template.
+
+    The statutory metric contains hidden calculation sheets which are just as
+    important as the visible input sheets.  Losing one does not necessarily
+    make Excel report a corrupt workbook: dependent formulas can instead be
+    rewritten to ``#REF!`` and the visible Credits Summary merely shows
+    ``Error``.  Compare the package inventories before declaring an export
+    successful so that failure is immediate and explicit.
+    """
+    with zipfile.ZipFile(template_path) as template_zip:
+        expected = set(_sheet_parts(template_zip))
+    with zipfile.ZipFile(out_path) as output_zip:
+        actual = set(_sheet_parts(output_zip))
+
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if extra:
+            details.append("unexpected: " + ", ".join(extra))
+        raise MetricPatchError(
+            "Exported metric worksheet inventory differs from the template ("
+            + "; ".join(details) + ").")
+
+    # This hidden sheet supplies Credits Summary!D5:D11.  Keep an explicit
+    # guard because its loss previously produced a plausible-looking workbook
+    # in which every habitat/hedgerow/watercourse credit tier said "Error".
+    if "Credits calculations" not in actual:
+        raise MetricPatchError(
+            "Exported metric is missing the hidden 'Credits calculations' "
+            "worksheet required by the Credits Summary.")
+
+
 def _cell_xml(ref, style, val):
     """Serialise a value into a styled cell. Numbers as <v>, text inline.
 
@@ -183,6 +219,8 @@ def patch_metric(template_path, out_path, sheets):
                     zout.writestr(item, data)
                 else:
                     zout.writestr(item, zin.read(item.filename))
+
+    _verify_sheet_inventory(template_path, out_path)
 
 
 def validate_rows(template_path, groups):

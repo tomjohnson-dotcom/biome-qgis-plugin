@@ -26,7 +26,8 @@ from .council_maps import (build_tpo_deeplink, tpo_data_download, lpa_homepage, 
 from .pond_mapper import (get_or_create_pond_layer, remove_pond_layer, add_pond,
     remove_pond_distance_lines, set_pond_lines_visible,
     load_pond_distance_lines, POND_LAYER_NAME, POND_LINES_LAYER_NAME,
-    apply_pond_label_mode, pond_label_mode, ensure_pond_fields)
+    apply_pond_label_mode, pond_label_mode, ensure_pond_fields,
+    renumber_ponds_in_order)
 from .config import (get_os_api_key, get_os_ngd_api_key,
                      get_google_maps_api_key)
 from .config import get_phi_group_nearby, set_phi_group_nearby
@@ -5656,8 +5657,8 @@ class DeskStudyMixin:
         layout.setSpacing(9)
 
         intro = QLabel(
-            "Select a marker to move or delete it. References are renumbered "
-            "automatically after a deletion.")
+            "Drag markers up or down to choose their SWB reference, regardless "
+            "of distance. Select a marker to move or delete it.")
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#46564D;font-size:11px;")
         layout.addWidget(intro)
@@ -5665,6 +5666,12 @@ class DeskStudyMixin:
         marker_list = QListWidget()
         marker_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
+        marker_list.setDragDropMode(
+            QAbstractItemView.DragDropMode.InternalMove)
+        marker_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        marker_list.setDragEnabled(True)
+        marker_list.setAcceptDrops(True)
+        marker_list.setDropIndicatorShown(True)
         marker_list.setAlternatingRowColors(True)
         marker_list.setMinimumHeight(150)
         marker_list.setStyleSheet(
@@ -5751,7 +5758,10 @@ class DeskStudyMixin:
         footer.addWidget(close_box)
         layout.addLayout(footer)
 
+        reloading = {"active": False}
+
         def _reload(select_row=0):
+            reloading["active"] = True
             marker_list.clear()
             rows = sorted(
                 list(layer.getFeatures()),
@@ -5774,6 +5784,35 @@ class DeskStudyMixin:
             if has_rows:
                 marker_list.setCurrentRow(
                     max(0, min(select_row, marker_list.count() - 1)))
+            reloading["active"] = False
+
+        def _apply_dragged_order(*_args):
+            if reloading["active"]:
+                return
+            root = QgsProject.instance().layerTreeRoot()
+            lines_visible = any(
+                root.findLayer(line.id()) is not None
+                and root.findLayer(line.id()).isVisible()
+                for line in QgsProject.instance().mapLayersByName(
+                    POND_LINES_LAYER_NAME))
+            selected_fid = (_selected() or (None, None))[0]
+            feature_ids = [
+                int(marker_list.item(i).data(Qt.ItemDataRole.UserRole))
+                for i in range(marker_list.count())]
+            if not renumber_ponds_in_order(layer, feature_ids):
+                QMessageBox.warning(
+                    self, "Standing Water Bodies",
+                    "The marker order could not be saved.")
+                _reload()
+                return
+            redline = self._get_redline_geom()
+            load_pond_distance_lines(redline)
+            set_pond_lines_visible(lines_visible)
+            self.iface.mapCanvas().refresh()
+            selected_row = next((
+                i for i, fid in enumerate(feature_ids)
+                if fid == selected_fid), 0)
+            _reload(selected_row)
 
         def _sync_classification():
             item = marker_list.currentItem()
@@ -5843,6 +5882,8 @@ class DeskStudyMixin:
         delete_btn.clicked.connect(_delete)
         marker_list.currentItemChanged.connect(
             lambda _current, _previous: _sync_classification())
+        marker_list.model().rowsMoved.connect(
+            lambda *_args: QTimer.singleShot(0, _apply_dragged_order))
         classification_combo.currentIndexChanged.connect(_set_classification)
         marker_list.itemDoubleClicked.connect(lambda _item: _move())
         export_btn.clicked.connect(
@@ -9318,6 +9359,12 @@ class DeskStudyMixin:
                 and not getattr(self, "_ds_full_search_had_results", False)):
             meta["empty_status"] = (
                 "No designated sites found within the search area")
+        if map_type == "EPSL Map":
+            from qgis.core import QgsProject
+            epsl_layers = QgsProject.instance().mapLayersByName(
+                "EPSL Locations")
+            if not any(layer.featureCount() > 0 for layer in epsl_layers):
+                meta["empty_status"] = "None found within 2 km"
         override = getattr(self, "_map_name_overrides", {}).get(map_type)
         if override:
             meta["title"] = override

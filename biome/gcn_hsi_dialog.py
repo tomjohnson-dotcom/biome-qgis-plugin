@@ -331,6 +331,7 @@ class GcnHsiDialog(QDialog):
         super().__init__(parent)
         self._state = {f["key"]: None for f in G.FACTORS}   # si | OMIT | None
         self._display = {}     # key -> human value string
+        self._inputs = {}      # key -> category index or raw graph measurement
         self._si_str = {}      # key -> "1.00" | "n/a" | "—"
         self._cards = {}       # key -> widget refs
         self._ponds = []       # snapshots for the comparison table
@@ -1021,14 +1022,17 @@ class GcnHsiDialog(QDialog):
                             " background:transparent;" % (theme.FONT_SEMIBOLD, theme.INK))
         v.addWidget(title)
         desc = QLabel("All Pond Mapper water bodies are listed, including those without an HSI. "
-                      "Set each pond's survey status here; choosing survey undertaken opens that pond above for scoring.")
+                      "Set each pond's survey status here; choosing survey undertaken opens that pond above for scoring. "
+                      "Use Edit to reopen and amend a completed assessment.")
         desc.setWordWrap(True)
         desc.setStyleSheet("color:%s; font-size:11px; background:transparent;" % theme.MUTED)
         v.addWidget(desc)
 
-        self._table = QTableWidget(0, 6)
+        factor_headers = ["%s %s" % (f["key"], f["title"]) for f in G.FACTORS]
+        self._table = QTableWidget(0, 17)
         self._table.setHorizontalHeaderLabels(
-            ["Pond", "Grid ref", "Distance", "Status", "HSI", "Suitability"])
+            ["Pond", "Grid ref", "Distance", "Status"] + factor_headers
+            + ["HSI", "Suitability", "Edit"])
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1037,11 +1041,11 @@ class GcnHsiDialog(QDialog):
         # to review roughly ten ponds and their statuses without constant
         # scrolling inside the table.
         self._table.setMinimumHeight(650)
-        self._table.setMinimumWidth(790)
+        self._table.setMinimumWidth(1040)
         self._table.verticalHeader().setDefaultSectionSize(29)
         hh = self._table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        for c in (1, 2, 4, 5):
+        for c in range(1, 17):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self._table.setColumnWidth(3, 310)
@@ -1130,6 +1134,7 @@ class GcnHsiDialog(QDialog):
         label, si, help_ = factor["options"][idx]
         self._state[key] = si
         self._display[key] = label
+        self._inputs[key] = idx
         self._si_str[key] = "%.2f" % si
         self._set_pill(key, si, False)
         self._cards[key]["help"].setText("%s · SI %.2f — %s" % (label, si, help_))
@@ -1141,6 +1146,7 @@ class GcnHsiDialog(QDialog):
         if v < 0:                                   # unset
             self._state[key] = None
             self._display[key] = None
+            self._inputs[key] = None
             self._si_str[key] = "—"
             refs["graph"].set_marker(None, None)
             if "density" in refs:
@@ -1149,6 +1155,7 @@ class GcnHsiDialog(QDialog):
             self._recompute()
             return
         si, omit = G.graph_si(factor, v)
+        self._inputs[key] = int(v)
         if factor.get("count"):
             dens = G.density_for_count(v)
             refs["density"].setText("= %.2f / km²" % dens)
@@ -1257,6 +1264,7 @@ class GcnHsiDialog(QDialog):
         band = G.band_for(hsi)
         pond = {"name": name, "ref": ref, "hsi": hsi, "band": band,
                 "state": dict(self._state), "mapped_id": mapped_id,
+                "display": dict(self._display), "inputs": dict(self._inputs),
                 "distance_m": distance_m, "distance_label": distance_label,
                 "status": "hsi_complete"}
 
@@ -1307,13 +1315,96 @@ class GcnHsiDialog(QDialog):
             lambda _i, p=pond, c=status_combo: self._on_pond_status_changed(
                 p, str(c.currentData() or "not_assessed")))
         self._table.setCellWidget(r, 3, status_combo)
+        for offset, factor in enumerate(G.FACTORS, 4):
+            self._table.setItem(
+                r, offset, QTableWidgetItem(
+                    self._assessment_text(pond, factor, include_si=True)))
         hsi = pond.get("hsi")
-        self._table.setItem(r, 4, QTableWidgetItem("%.2f" % hsi if hsi is not None else "—"))
+        self._table.setItem(r, 14, QTableWidgetItem("%.2f" % hsi if hsi is not None else "—"))
         band = pond.get("band") or "—"
         bitem = QTableWidgetItem(band)
         fg, _bg = BAND_STYLE.get(band, (theme.INK, theme.SURFACE))
         bitem.setForeground(QColor(fg))
-        self._table.setItem(r, 5, bitem)
+        self._table.setItem(r, 15, bitem)
+        edit = QPushButton("Edit")
+        edit.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        edit.setStyleSheet(self._btn_qss())
+        edit.setEnabled(hsi is not None)
+        edit.setToolTip("Reopen and amend this pond's saved HSI assessment")
+        edit.clicked.connect(lambda _checked=False, p=pond: self._edit_pond(p))
+        self._table.setCellWidget(r, 16, edit)
+
+    def _assessment_text(self, pond, factor, include_si=False):
+        """Return the saved human assessment, reconstructing legacy records."""
+        key = factor["key"]
+        state = (pond.get("state") or {}).get(key)
+        display = str((pond.get("display") or {}).get(key) or "").strip()
+        if not display and factor["type"] == "cat" and isinstance(state, (int, float)):
+            match = next((option for option in factor["options"]
+                          if abs(float(option[1]) - float(state)) < 0.000001), None)
+            display = match[0] if match else ""
+        if not display and state == G.OMIT:
+            display = "Not applicable"
+        if not display and isinstance(state, (int, float)):
+            display = "Recorded score"
+        if not display:
+            return "—"
+        if include_si:
+            score = "n/a" if state == G.OMIT else (
+                "%.2f" % state if isinstance(state, (int, float)) else "—")
+            return "%s (%s)" % (display, score)
+        return display
+
+    def _infer_graph_input(self, factor, target):
+        """Recover the closest raw measurement from a legacy saved SI value."""
+        if not isinstance(target, (int, float)):
+            return None
+        best_value, best_delta = None, float("inf")
+        for value in range(0, int(factor.get("maxinput", 0)) + 1):
+            score, omitted = G.graph_si(factor, value)
+            if omitted or score is None:
+                continue
+            delta = abs(float(score) - float(target))
+            if delta < best_delta:
+                best_value, best_delta = value, delta
+                if delta < 0.000001:
+                    break
+        return best_value
+
+    def _edit_pond(self, pond):
+        """Reload a completed saved assessment into the editable HSI form."""
+        mapped_id = str(pond.get("mapped_id") or "")
+        self._active_mapped_id = mapped_id
+        self._ref_edit.setReadOnly(bool(mapped_id))
+        self._ref_pick_btn.setEnabled(not bool(mapped_id))
+        self._name_edit.setText(str(pond.get("name") or ""))
+        self._ref_edit.setText(str(pond.get("ref") or ""))
+        self._distance_edit.setText(str(pond.get("distance_label") or ""))
+        self._clear_hsi_form()
+        saved_state = pond.get("state") or {}
+        saved_inputs = pond.get("inputs") or {}
+        for factor in G.FACTORS:
+            key = factor["key"]
+            target = saved_state.get(key)
+            if factor["type"] == "cat":
+                idx = saved_inputs.get(key)
+                if not isinstance(idx, int) or not (0 <= idx < len(factor["options"])):
+                    idx = next((i for i, option in enumerate(factor["options"])
+                                if isinstance(target, (int, float))
+                                and abs(float(option[1]) - float(target)) < 0.000001), None)
+                if idx is not None:
+                    buttons = self._cards[key]["group"].buttons()
+                    buttons[idx].setChecked(True)
+                    self._on_cat(factor, idx)
+            else:
+                value = saved_inputs.get(key)
+                if not isinstance(value, int):
+                    value = self._infer_graph_input(factor, target)
+                if value is not None:
+                    self._cards[key]["spin"].setValue(value)
+        self._tabs.setCurrentIndex(1)
+        self._hsi_scroll.verticalScrollBar().setValue(0)
+        self._status.setText("Editing the saved HSI assessment for %s." % pond.get("name", "this pond"))
 
     def _on_pond_status_changed(self, pond, status):
         pond["status"] = status
@@ -1321,6 +1412,8 @@ class GcnHsiDialog(QDialog):
             pond["hsi"] = None
             pond["band"] = "—"
             pond["state"] = {f["key"]: None for f in G.FACTORS}
+            pond["display"] = {}
+            pond["inputs"] = {}
         self._save_ponds()
         if status != "hsi_required":
             self._refresh_pond_table()
@@ -1355,6 +1448,7 @@ class GcnHsiDialog(QDialog):
         """Clear score controls before starting an HSI for another pond."""
         self._state = {f["key"]: None for f in G.FACTORS}
         self._display = {}
+        self._inputs = {}
         self._si_str = {}
         for factor in G.FACTORS:
             refs = self._cards[factor["key"]]
@@ -1431,6 +1525,8 @@ class GcnHsiDialog(QDialog):
                     "hsi": hsi,
                     "band": G.band_for(hsi) if hsi is not None else "—",
                     "state": state,
+                    "display": dict(item.get("display") or {}),
+                    "inputs": dict(item.get("inputs") or {}),
                     "status": status,
                 })
 
@@ -1449,6 +1545,8 @@ class GcnHsiDialog(QDialog):
                     "hsi": None,
                     "band": "—",
                     "state": {key: None for key in factor_keys},
+                    "display": {},
+                    "inputs": {},
                     "status": "not_assessed",
                 })
 
@@ -1470,14 +1568,15 @@ class GcnHsiDialog(QDialog):
         if not self._ponds:
             self._status.setText("Add a pond to the table first.")
             return
-        header = ["Pond", "Grid ref", "Distance from site", "Survey status"] + [f["key"] for f in G.FACTORS] + ["HSI", "Suitability"]
+        header = ["Pond", "Grid ref", "Distance from site", "Survey status"] + [
+            "%s %s" % (f["key"], f["title"]) for f in G.FACTORS
+        ] + ["HSI", "Suitability"]
         rows = ["\t".join(header)]
         for p in self._ponds:
             cells = [p["name"], p["ref"], p.get("distance_label") or "—",
                      POND_STATUS_LABELS.get(p.get("status"), "Not assessed")]
             for f in G.FACTORS:
-                v = p["state"].get(f["key"])
-                cells.append("omit" if v == G.OMIT else ("" if v is None else "%.2f" % v))
+                cells.append(self._assessment_text(p, f, include_si=True))
             cells.append("%.2f" % p["hsi"] if p.get("hsi") is not None else "")
             cells.append(p.get("band") if p.get("hsi") is not None else "")
             rows.append("\t".join(cells))
@@ -1503,9 +1602,8 @@ class GcnHsiDialog(QDialog):
                 state = pond.get("state") or {}
                 lines.append("Suitability indices: " + "; ".join(
                     "%s %s" % (factor["key"],
-                                "n/a" if state.get(factor["key"]) == G.OMIT
-                                else ("—" if state.get(factor["key"]) is None
-                                      else "%.2f" % state[factor["key"]]))
+                                self._assessment_text(
+                                    pond, factor, include_si=True))
                     for factor in G.FACTORS))
             lines.append("")
         QApplication.clipboard().setText("\n".join(lines).rstrip())
@@ -1529,8 +1627,9 @@ class GcnHsiDialog(QDialog):
 
         scale = 2
         width = 1200
-        row_h = 44
-        height = 150 + row_h * len(self._ponds) + 42
+        row_h = 142
+        legend_h = 116
+        height = 150 + row_h * len(self._ponds) + legend_h
         image = QImage(width * scale, height * scale, QImage.Format.Format_RGB32)
         image.fill(QColor(theme.SURFACE))
         painter = QPainter(image)
@@ -1572,12 +1671,66 @@ class GcnHsiDialog(QDialog):
                       pond.get("distance_label") or "—", status,
                       "%.2f" % pond["hsi"] if pond.get("hsi") is not None else "—",
                       pond.get("band") if pond.get("hsi") is not None else "—"]
+            font.setPixelSize(11); font.setBold(False); painter.setFont(font)
             painter.setPen(QColor(theme.INK))
             for (x, w, _heading), value in zip(columns, values):
-                painter.drawText(QRectF(x + 6, y, w - 12, row_h),
+                painter.drawText(QRectF(x + 6, y, w - 12, 38),
                                  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                  str(value))
+
+            # Two compact rows of five factors retain the actual assessment
+            # choices (for example Zone A and Rarely dries), not only SI scores.
+            factor_top = y + 42
+            factor_w = (width - 56) / 5.0
+            for factor_index, factor in enumerate(G.FACTORS):
+                grid_row, grid_col = divmod(factor_index, 5)
+                fx = 28 + grid_col * factor_w
+                fy = factor_top + grid_row * 46
+                font.setPixelSize(8); font.setBold(True); painter.setFont(font)
+                painter.setPen(QColor(theme.FAINT))
+                painter.drawText(QRectF(fx + 5, fy, factor_w - 10, 14),
+                                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                                 "%s · %s" % (factor["key"], factor["title"]))
+                font.setPixelSize(9); font.setBold(False); painter.setFont(font)
+                painter.setPen(QColor(theme.INK))
+                painter.drawText(QRectF(fx + 5, fy + 14, factor_w - 10, 28),
+                                 int(Qt.AlignmentFlag.AlignLeft
+                                     | Qt.AlignmentFlag.AlignTop
+                                     | Qt.TextFlag.TextWordWrap),
+                                 self._assessment_text(
+                                     pond, factor, include_si=True))
             y += row_h
+
+        # Explain the Lee Brady bands on the exported image itself so the
+        # suitability labels remain meaningful when the PNG is viewed alone.
+        y += 18
+        font.setPixelSize(10); font.setBold(True); painter.setFont(font)
+        painter.setPen(QColor(theme.MUTED))
+        painter.drawText(QRectF(28, y, width - 56, 16),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         "HSI SCORE CATEGORIES (LEE BRADY)")
+        y += 22
+        legend_x = 28
+        legend_w = (width - 56) / len(G.BANDS)
+        for index, (_threshold, label, score_range) in enumerate(G.BANDS):
+            fg, bg = BAND_STYLE[label]
+            x = legend_x + index * legend_w
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(bg))
+            painter.drawRoundedRect(QRectF(x + 2, y, legend_w - 4, 32), 6, 6)
+            font.setPixelSize(10); font.setBold(True); painter.setFont(font)
+            painter.setPen(QColor(fg))
+            painter.drawText(QRectF(x + 8, y, legend_w - 16, 18),
+                             Qt.AlignmentFlag.AlignCenter, label)
+            font.setPixelSize(9); font.setBold(False); painter.setFont(font)
+            painter.drawText(QRectF(x + 8, y + 16, legend_w - 16, 14),
+                             Qt.AlignmentFlag.AlignCenter, score_range)
+        y += 40
+        font.setPixelSize(9); font.setBold(False); painter.setFont(font)
+        painter.setPen(QColor(theme.FAINT))
+        painter.drawText(QRectF(28, y, width - 56, 18),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         "HSI describes habitat suitability; it does not confirm great crested newt presence or absence.")
         painter.end()
         ok = image.save(path, "PNG")
         self._status.setText("Multi-pond summary PNG saved ✓" if ok
@@ -1691,6 +1844,9 @@ class GcnHsiDialog(QDialog):
         y += rh + 20
 
         # Band scale
+        setf(9, "Inter Medium", QFont.Weight.Medium)
+        txt(M, y, CW, 14, AL, "HSI SCORE CATEGORIES (LEE BRADY)", theme.MUTED)
+        y += 18
         sw = CW / 5.0; sh = 28
         for i, (_thr, lab, rng) in enumerate(G.BANDS):
             fg, bg = BAND_STYLE[lab]
