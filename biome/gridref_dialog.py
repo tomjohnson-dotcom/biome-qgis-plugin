@@ -34,7 +34,7 @@ from qgis.core import (
     QgsUnitTypes, QgsSvgMarkerSymbolLayer,
     QgsWkbTypes, QgsSymbol, QgsVectorFileWriter,
     QgsSimpleLineSymbolLayer, QgsSimpleFillSymbolLayer,
-    QgsGeometryGeneratorSymbolLayer,
+    QgsGeometryGeneratorSymbolLayer, QgsArrowSymbolLayer,
 )
 
 from .gridref_utils import gridref_to_osgb_en, GridRefError
@@ -926,10 +926,25 @@ _NEW_POINT_GROUPS: List[tuple] = [
 
 _NEW_LINE_FEATURES: Dict[str, Dict[str, str]] = {
     "Important Hedgerow": {"color": "#2e7d32", "width": "1.4", "style": "solid"},
+    "Protective Heras Fencing": {"color": "#1E6FB8", "width": "1.2", "style": "dash"},
+    "Rigid Tree-protection Barrier": {"color": "#7A2E8E", "width": "1.4", "style": "solid"},
+    "Site Access Route (Arrow)": {
+        "color": "#D06B1F", "width": "1.0", "style": "solid",
+        "render": "arrow",
+    },
 }
 _NEW_LINE_GROUPS: List[tuple] = [
     ("🌿  Habitat", [
         ("Hedgerows", ["Important Hedgerow"]),
+    ]),
+    ("🚧  Exclusion", [
+        ("Fencing", [
+            "Protective Heras Fencing",
+            "Rigid Tree-protection Barrier",
+        ]),
+    ]),
+    ("🏗️  Built", [
+        ("Construction Access", ["Site Access Route (Arrow)"]),
     ]),
 ]
 
@@ -939,6 +954,10 @@ _NEW_AREA_FEATURES: Dict[str, Dict[str, str]] = {
     "Reptile Receptor Site":   {"fill": "#44aa44", "border": "#227722", "opacity": "0.25", "style": "dash"},
     "Amphibian Receptor Site": {"fill": "#44bb88", "border": "#228855", "opacity": "0.25", "style": "dash"},
     "Wader Scrape":            {"fill": "#aaddff", "border": "#4499cc", "opacity": "0.35", "style": "solid"},
+    "Biodiversity Protection Zone (BPZ)": {"fill": "#55B86A", "border": "#1F7A3A", "opacity": "0.25", "style": "dash"},
+    "Tree Protection Area":    {"fill": "#E6B84A", "border": "#A56B00", "opacity": "0.25", "style": "dash"},
+    "Permitted Construction Working Area": {"fill": "#8FA6B8", "border": "#445D70", "opacity": "0.20", "style": "solid"},
+    "Site Access Route (Area)": {"fill": "#E8A15B", "border": "#B65314", "opacity": "0.25", "style": "dash"},
 }
 _NEW_AREA_GROUPS: List[tuple] = [
     ("🚫  Invasive", [
@@ -946,6 +965,16 @@ _NEW_AREA_GROUPS: List[tuple] = [
     ]),
     ("🌱  Enhancement", [
         ("Habitat Creation", ["Reptile Receptor Site", "Amphibian Receptor Site", "Wader Scrape"]),
+    ]),
+    ("🚧  Exclusion", [
+        ("Construction Controls", [
+            "Biodiversity Protection Zone (BPZ)",
+            "Tree Protection Area",
+            "Permitted Construction Working Area",
+        ]),
+    ]),
+    ("🏗️  Built", [
+        ("Construction Access", ["Site Access Route (Area)"]),
     ]),
 ]
 
@@ -2252,12 +2281,17 @@ class GridRefDialog(QDialog):
         self._select_first_picker_item()
         self._update_colour_swatch()
 
-        # Apply style if layers exist
-        layer = self._get_existing_layer()
-        if layer is not None:
-            self._ensure_fields(layer)
-            self._apply_style(layer)
-            layer.triggerRepaint()
+        # Apply current fields, names, and styles to all existing mapper layers.
+        # This also upgrades features saved under superseded built-in names.
+        for layer in (
+                self._get_existing_layer(),
+                self._get_existing_line_layer(),
+                self._get_existing_poly_layer()):
+            if layer is not None:
+                self._ensure_fields(layer)
+                self._migrate_builtin_ftype_names(layer)
+                self._apply_style(layer)
+                layer.triggerRepaint()
 
         self._update_undo_state()
         self._update_counts()
@@ -6050,6 +6084,31 @@ class GridRefDialog(QDialog):
         if not ok:
             raise RuntimeError("Failed to add required fields to the layer.")
 
+    @staticmethod
+    def _migrate_builtin_ftype_names(layer: QgsVectorLayer) -> None:
+        """Update superseded built-in feature names in existing projects."""
+        aliases = {
+            "Consented Working Area": "Permitted Construction Working Area",
+            "Site Access Route": "Site Access Route (Arrow)",
+        }
+        field_idx = layer.fields().indexOf("ftype")
+        if field_idx < 0:
+            return
+        changes = {
+            feature.id(): aliases[str(feature.attribute(field_idx))]
+            for feature in layer.getFeatures()
+            if str(feature.attribute(field_idx)) in aliases
+        }
+        if not changes:
+            return
+        was_editable = layer.isEditable()
+        if not was_editable and not layer.startEditing():
+            return
+        for feature_id, new_name in changes.items():
+            layer.changeAttributeValue(feature_id, field_idx, new_name)
+        if not was_editable:
+            layer.commitChanges()
+
     # ---------------- Labeling ----------------
     def _labels_hidden(self) -> bool:
         """Master 'all labels off' state (project-stored; see fov_label_arcs)."""
@@ -6506,10 +6565,21 @@ class GridRefDialog(QDialog):
                 color     = QColor(props.get("color", "#C97B16"))
                 width     = float(props.get("width", "0.6"))
                 pen_style = _style_map.get(props.get("style", "solid"), Qt.PenStyle.SolidLine)
-                line_sl   = QgsSimpleLineSymbolLayer()
-                line_sl.setColor(color)
-                line_sl.setWidth(width)
-                line_sl.setPenStyle(pen_style)
+                if props.get("render") == "arrow":
+                    line_sl = QgsArrowSymbolLayer()
+                    line_sl.setColor(color)
+                    line_sl.setFillColor(color)
+                    line_sl.setStrokeColor(color.darker(125))
+                    line_sl.setArrowWidth(width)
+                    line_sl.setArrowStartWidth(width)
+                    line_sl.setHeadLength(max(3.0, width * 3.0))
+                    line_sl.setHeadThickness(max(2.4, width * 2.4))
+                    line_sl.setHeadType(QgsArrowSymbolLayer.HeadSingle)
+                else:
+                    line_sl = QgsSimpleLineSymbolLayer()
+                    line_sl.setColor(color)
+                    line_sl.setWidth(width)
+                    line_sl.setPenStyle(pen_style)
                 sym = QgsSymbol.defaultSymbol(geom_type)
                 sym.changeSymbolLayer(0, line_sl)
                 categories.append(QgsRendererCategory(ftype, sym, ftype))

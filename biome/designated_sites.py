@@ -906,8 +906,8 @@ def _esri_rings_to_qgsgeom(geom):
     """Convert an esriJSON geometry dict (rings) to QgsGeometry (BNG).
 
     esriJSON uses winding order to distinguish outer rings from holes:
-      - Outer rings are clockwise (positive signed area in BNG coords)
-      - Holes are counter-clockwise (negative signed area)
+      - Outer rings are clockwise (negative shoelace signed area)
+      - Holes are counter-clockwise (positive shoelace signed area)
 
     Builds a proper multipolygon so separate IRZ zone parts render correctly.
     """
@@ -926,26 +926,48 @@ def _esri_rings_to_qgsgeom(geom):
             j = (i + 1) % n
             a += ring[i][0] * ring[j][1]
             a -= ring[j][0] * ring[i][1]
-        return a  # positive = CW = outer ring in BNG
+        return a  # negative = clockwise; positive = counter-clockwise
 
     qrings = [[QgsPointXY(pt[0], pt[1]) for pt in ring] for ring in rings]
     areas  = [_signed_area(ring) for ring in rings]
 
-    outer_idx = [i for i, a in enumerate(areas) if a >= 0]
-    hole_idx  = [i for i, a in enumerate(areas) if a < 0]
+    outer_idx = [i for i, a in enumerate(areas) if a <= 0]
+    hole_idx  = [i for i, a in enumerate(areas) if a > 0]
 
     if not outer_idx:
         outer_idx = list(range(len(rings)))
         hole_idx  = []
 
-    polys = []
-    for oi in outer_idx:
-        poly = [qrings[oi]] + [qrings[hi] for hi in hole_idx]
-        polys.append(poly)
+    # Assign each hole only to the outer ring which contains it.  The former
+    # implementation attached every hole to every outer ring; multipart PHI
+    # features then became invalid and could report a correct distance while
+    # falsely failing an intersects(buffer) test at the search boundary.
+    outer_geometries = {
+        oi: QgsGeometry.fromPolygonXY([qrings[oi]]) for oi in outer_idx
+    }
+    holes_by_outer = {oi: [] for oi in outer_idx}
+    for hi in hole_idx:
+        if not qrings[hi]:
+            continue
+        test_point = QgsGeometry.fromPointXY(qrings[hi][0])
+        containing = [
+            oi for oi, outer in outer_geometries.items()
+            if outer.contains(test_point)
+        ]
+        if containing:
+            # Nested outer rings are unusual but valid; the smallest containing
+            # part is the geometrically correct parent for the hole.
+            parent = min(containing, key=lambda oi: outer_geometries[oi].area())
+            holes_by_outer[parent].append(qrings[hi])
 
-    if len(polys) == 1:
-        return QgsGeometry.fromPolygonXY(polys[0])
-    return QgsGeometry.fromMultiPolygonXY(polys)
+    polys = [[qrings[oi]] + holes_by_outer[oi] for oi in outer_idx]
+    result = (QgsGeometry.fromPolygonXY(polys[0]) if len(polys) == 1
+              else QgsGeometry.fromMultiPolygonXY(polys))
+    if not result.isEmpty() and not result.isGeosValid():
+        repaired = result.makeValid()
+        if repaired is not None and not repaired.isEmpty():
+            result = repaired
+    return result
 
 
 def _esri_point_to_qgsgeom(geom):
@@ -3765,11 +3787,7 @@ def load_phi_group_layer(group_key, easting, northing, redline_geom=None,
     for feat in all_features:
         attrs = feat.get("attributes", {})
         geom  = feat.get("geometry",   {})
-        rings = geom.get("rings", [])
-        if not rings:
-            continue
-        qrings = [[QgsPointXY(pt[0], pt[1]) for pt in ring] for ring in rings]
-        g = QgsGeometry.fromPolygonXY(qrings)
+        g = _esri_rings_to_qgsgeom(geom)
         if g.isEmpty():
             continue
         main_habitat = str(attrs.get("MainHabs", "") or "").strip()
@@ -4950,15 +4968,35 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
             return "lakes"
 
         # OS Open Zoomstack identifies polygons only as surface water. Separate
-        # broad, compact water bodies from narrow flowing-water polygons, then
-        # use the usual 2 ha pond/lake threshold. Ambiguous shapes remain Other.
+        # broad water bodies from narrow flowing-water polygons, then use the
+        # usual 2 ha pond/lake threshold.  Compactness alone is insufficient:
+        # a straight 10:1 river reach has a compactness of about 0.26 and was
+        # therefore previously misclassified as a pond.  The oriented bounding
+        # box provides a rotation-independent length-to-width test.
         if geom is not None:
             try:
                 area = float(geom.area())
                 perimeter = float(geom.length())
                 compactness = ((4.0 * math.pi * area) / (perimeter * perimeter)
                                if area > 0 and perimeter > 0 else 0.0)
-                if compactness < 0.06:
+                elongation = 1.0
+                try:
+                    _box, _box_area, _angle, width, height = (
+                        geom.orientedMinimumBoundingBox())
+                    short_side = min(float(width), float(height))
+                    long_side = max(float(width), float(height))
+                    if short_side > 0:
+                        elongation = long_side / short_side
+                except Exception:
+                    # A simple axis-aligned ratio is still useful for features
+                    # which are close to north/south or east/west.
+                    bounds = geom.boundingBox()
+                    short_side = min(bounds.width(), bounds.height())
+                    long_side = max(bounds.width(), bounds.height())
+                    if short_side > 0:
+                        elongation = long_side / short_side
+
+                if compactness < 0.06 or elongation >= 4.0:
                     return "rivers"
                 if compactness >= 0.12:
                     return "ponds" if area <= 20000.0 else "lakes"
@@ -5322,11 +5360,14 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
     lyr.setCustomProperty("skipMemoryLayersCheck", 1)
     lyr.setCustomProperty("biome_scratch", "1")
     lyr.setCustomProperty("biome_gpkg_table", _SW_GPKG_TABLE)
+    lyr.setCustomProperty(
+        "biome_standing_water_types", "|".join(sorted(enabled_types)))
     project = QgsProject.instance()
     project.addMapLayer(lyr, False)
     root = project.layerTreeRoot()
-    from .pond_mapper import pond_group
+    from .pond_mapper import pond_group, order_pond_group_layers
     pond_group(root, create=True).insertLayer(0, lyr)
+    order_pond_group_layers(root)
 
     return True, lyr
 
@@ -5347,7 +5388,7 @@ def _style_standing_water_layer(layer):
 def organise_standing_water_layers():
     """Move legacy/root water polygons into the shared standing-water group."""
     from qgis.core import QgsProject, QgsWkbTypes
-    from .pond_mapper import pond_group
+    from .pond_mapper import pond_group, order_pond_group_layers
 
     project = QgsProject.instance()
     root = project.layerTreeRoot()
@@ -5378,6 +5419,7 @@ def organise_standing_water_layers():
             node.parent().removeChildNode(node)
             new_node = group.addLayer(layer)
             new_node.setItemVisibilityChecked(visible)
+    order_pond_group_layers(root)
     return candidates[0]
 
 
@@ -5385,7 +5427,7 @@ def recover_persisted_standing_water_layer(gpkg_path):
     """Reconnect saved mapped water outlines without making another API call."""
     import os
     from qgis.core import QgsDataProvider, QgsProject, QgsVectorLayer
-    from .pond_mapper import pond_group
+    from .pond_mapper import pond_group, order_pond_group_layers
 
     existing = organise_standing_water_layers()
     if existing is not None and existing.isValid() and existing.featureCount() > 0:
@@ -5413,6 +5455,7 @@ def recover_persisted_standing_water_layer(gpkg_path):
     layer.setCustomProperty("biome_gpkg_table", _SW_GPKG_TABLE)
     _style_standing_water_layer(layer)
     organise_standing_water_layers()
+    order_pond_group_layers(project.layerTreeRoot())
     return layer
 
 
@@ -5426,6 +5469,20 @@ def remove_standing_water_layer():
             node = root.findLayer(lyr.id())
             if node is not None:
                 node.setItemVisibilityChecked(False)
+
+
+def discard_standing_water_layer():
+    """Remove cached water outlines so the next load reapplies current types."""
+    from qgis.core import QgsProject
+    project = QgsProject.instance()
+    names = (_SW_LAYER_NAME,) + _SW_LEGACY_LAYER_NAMES
+    layer_ids = [
+        layer.id()
+        for name in names
+        for layer in project.mapLayersByName(name)
+    ]
+    if layer_ids:
+        project.removeMapLayers(layer_ids)
 
 
 # ---------------------------------------------------------------------------

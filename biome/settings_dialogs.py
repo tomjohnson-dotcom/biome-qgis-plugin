@@ -933,11 +933,13 @@ class SettingsDialogsMixin:
         if dlg.exec() == QDialog.DialogCode.Accepted:
             set_standing_water_types(
                 key for key, check in checks.items() if check.isChecked())
-            # The current outline layer may contain now-disabled classes. Hide
-            # it so the next Load click always rebuilds with the new selection.
+            # The current outline layer may contain now-disabled classes.
+            # Discard it so the next Load click rebuilds with the new filter;
+            # merely hiding it allowed the desk-study button to re-show stale
+            # rivers without querying or filtering again.
             try:
-                from .designated_sites import remove_standing_water_layer
-                remove_standing_water_layer()
+                from .designated_sites import discard_standing_water_layer
+                discard_standing_water_layer()
             except Exception:
                 pass
 

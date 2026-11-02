@@ -111,10 +111,42 @@ def pond_group(root, create=False):
     return grp
 
 
+def order_pond_group_layers(root=None):
+    """Keep markers above outlines, with derived distance lines at the bottom."""
+    from qgis.core import QgsLayerTreeLayer, QgsProject
+    root = root or QgsProject.instance().layerTreeRoot()
+    group = pond_group(root, create=False)
+    if group is None:
+        return
+
+    nodes = [child for child in group.children()
+             if isinstance(child, QgsLayerTreeLayer) and child.layer() is not None]
+
+    def _priority(node):
+        layer = node.layer()
+        table = str(layer.customProperty("biome_gpkg_table", ""))
+        if layer.name() == POND_LAYER_NAME or table == "water_bodies":
+            return 0
+        if (table == "known_water_outlines" or
+                layer.name() in {"Mapped Water-body Outlines",
+                                 "Standing Water Bodies"}):
+            return 1
+        if layer.name() == POND_LINES_LAYER_NAME:
+            return 2
+        return 3
+
+    ordered = sorted(nodes, key=_priority)
+    if ordered != nodes:
+        group.reorderGroupLayers([node.layer() for node in ordered])
+
+
 def migrate_pond_group_name():
     """Upgrade the legacy group name in the current project, if present."""
     from qgis.core import QgsProject
-    return pond_group(QgsProject.instance().layerTreeRoot(), create=False)
+    root = QgsProject.instance().layerTreeRoot()
+    group = pond_group(root, create=False)
+    order_pond_group_layers(root)
+    return group
 
 
 def _project_redline_bng():
@@ -399,6 +431,7 @@ def get_or_create_pond_layer():
     grp.insertLayer(0, lyr)
     rebuild_pond_renderer(lyr)
     apply_pond_label_mode(lyr)
+    order_pond_group_layers(root)
     return lyr
 
 
@@ -457,6 +490,7 @@ def recover_persisted_pond_layer(gpkg_path):
     # first as soon as the persisted table is recovered.
     renumber_ponds_by_distance(pond_layer, _project_redline_bng())
     apply_pond_label_mode(pond_layer)
+    order_pond_group_layers(project.layerTreeRoot())
     return pond_layer
 
 
@@ -716,6 +750,7 @@ def load_pond_distance_lines(redline_geom):
         parent.insertLayer(idx, line_lyr)
     else:
         grp.addLayer(line_lyr)
+    order_pond_group_layers(root)
     grp.setExpanded(False)
 
     return line_lyr

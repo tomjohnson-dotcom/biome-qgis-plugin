@@ -1128,6 +1128,12 @@ def _build(iface, meta):
                 disp = "Red Line Boundary"
             elif disp == "Blue Line Boundary":
                 disp = "Blue Line Boundary"
+            elif disp == "Ecological Features":
+                disp = "Point Features"
+            elif disp == "Ecological Linear Features":
+                disp = "Linear Features"
+            elif disp == "Ecological Area Features":
+                disp = "Area Features"
             if disp and disp != lyr.name():
                 try:
                     node.setUseLayerName(False)

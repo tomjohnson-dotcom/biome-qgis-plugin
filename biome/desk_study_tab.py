@@ -3228,6 +3228,9 @@ class DeskStudyMixin:
             node = QgsProject.instance().layerTreeRoot().findLayer(existing[0].id())
             if node is not None:
                 node.setItemVisibilityChecked(True)
+            self._epsl_full_search_completed = True
+            self._epsl_full_search_had_results = any(
+                layer.featureCount() > 0 for layer in existing)
             self._epsl_btn.setText("🦇  Hide EPSL\nLocations")
             self._epsl_lines_btn.setEnabled(True)
             self._epsl_label_btn.setEnabled(True)
@@ -3264,13 +3267,18 @@ class DeskStudyMixin:
             QApplication.restoreOverrideCursor()
         if not ok:
             if result == "no_results":
+                self._epsl_full_search_completed = True
+                self._epsl_full_search_had_results = False
                 QMessageBox.information(self, "EPSL",
                     "None found within 2 km.")
             else:
+                self._epsl_full_search_completed = False
                 QMessageBox.critical(self, "EPSL Load Failed", result)
             self._epsl_btn.setChecked(False)
             self._epsl_btn.setText("🦇  Show EPSL\nLocations")
         else:
+            self._epsl_full_search_completed = True
+            self._epsl_full_search_had_results = True
             self._epsl_btn.setText("🦇  Hide EPSL\nLocations")
             self._epsl_lines_btn.setEnabled(True)
             self._epsl_lines_btn.setChecked(False)
@@ -5432,8 +5440,23 @@ class DeskStudyMixin:
         self._active_local_buffer_preset = "water"
         self._manual_local_buffers_enabled = False
 
-        # Re-show existing layer instantly without reloading
+        # Re-show an existing layer only if it was built with the current
+        # water-type selection. Older layers have no signature and layers
+        # created before a settings change may still contain disabled rivers.
         existing = QgsProject.instance().mapLayersByName(_SW_LAYER_NAME)
+        if existing:
+            from .config import get_standing_water_types
+            expected_types = "|".join(sorted(get_standing_water_types()))
+            stale = [
+                layer for layer in existing
+                if str(layer.customProperty(
+                    "biome_standing_water_types", "")) != expected_types
+            ]
+            if stale:
+                QgsProject.instance().removeMapLayers(
+                    [layer.id() for layer in stale])
+                existing = QgsProject.instance().mapLayersByName(
+                    _SW_LAYER_NAME)
         if existing:
             self._standing_water_buffer_requested = True
             node = QgsProject.instance().layerTreeRoot().findLayer(existing[0].id())
@@ -8835,8 +8858,8 @@ class DeskStudyMixin:
             layout.addWidget(summary)
 
             # ── shared helpers ────────────────────────────────────────────────
-            cols = ["Habitat", "Distance to redline (km)", "Code", "Area (ha)",
-                    "Description", "Centroid (GR)"]
+            cols = ["Habitat", "Distance to redline (km)", "Area (ha)",
+                    "Centroid (GR)", "Code", "Description"]
 
             def _fill_table(tbl, data):
                 for r_idx, row in enumerate(data):
@@ -8845,10 +8868,10 @@ class DeskStudyMixin:
                     vals = [
                         row["habitat"],
                         dist_dir,
-                        row["hab_code"],
                         f"{row['area_ha']:,.2f}" if row["area_ha"] else "—",
-                        desc,
                         row["centroid_gr"],
+                        row["hab_code"],
+                        desc,
                     ]
                     for c_idx, val in enumerate(vals):
                         if c_idx == 1:
@@ -8858,7 +8881,7 @@ class DeskStudyMixin:
                             item = QTableWidgetItem(val)
                         item.setTextAlignment(
                             Qt.AlignmentFlag.AlignVCenter | (
-                                Qt.AlignmentFlag.AlignCenter if c_idx in (1, 3) else Qt.AlignmentFlag.AlignLeft
+                                Qt.AlignmentFlag.AlignCenter if c_idx in (1, 2) else Qt.AlignmentFlag.AlignLeft
                             )
                         )
                         tbl.setItem(r_idx, c_idx, item)
@@ -8866,8 +8889,8 @@ class DeskStudyMixin:
                 tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
                 tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
                 tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-                tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-                tbl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+                tbl.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+                tbl.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
                 tbl.verticalHeader().setVisible(False)
                 tbl.setSortingEnabled(True)
                 tbl.sortItems(1)
@@ -8927,14 +8950,51 @@ class DeskStudyMixin:
             # Keyed by table widget, NOT tab index — the tabs are movable, so
             # an index into a parallel list would misroute after a drag.
             tab_info = {}
+            _tabs_by_id = {}
             for _base, _exp_label, _data, _thr in tab_defs:
                 _tbl = QTableWidget(len(_data), len(cols))
                 _tbl.setHorizontalHeaderLabels(cols)
                 _tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
                 self._setup_copyable_table(_tbl)
                 _fill_table(_tbl, _data)
+                _tab_id = (f"within_{_thr}" if _thr is not None else
+                           ("closest" if _base == "Closest per type" else "all"))
+                _tbl.setProperty("biomeTabId", _tab_id)
+                _tabs_by_id[_tab_id] = _tbl
                 tabs.addTab(_tbl, f"{_base} ({len(_data)})")
                 tab_info[_tbl] = (_data, _exp_label, _thr, _base)
+
+            # Restore and retain the user's dragged order between result
+            # windows and QGIS sessions. Stable IDs are used because the tab
+            # labels contain result counts which change from project to project.
+            _tab_order_key = "biome/desk_study/priority_habitat_report_tab_order"
+            _saved_order = QSettings().value(_tab_order_key, [])
+            if isinstance(_saved_order, str):
+                _saved_order = [_saved_order]
+            elif not isinstance(_saved_order, (list, tuple)):
+                _saved_order = []
+            _default_order = [
+                "all", "closest", "within_100", "within_250", "within_500"
+            ]
+            _known_order = [
+                tab_id for tab_id in _saved_order if tab_id in _tabs_by_id
+            ]
+            _known_order.extend(
+                tab_id for tab_id in _default_order if tab_id not in _known_order
+            )
+            for _target_index, _tab_id in enumerate(_known_order):
+                _current_index = tabs.indexOf(_tabs_by_id[_tab_id])
+                if _current_index != _target_index:
+                    tabs.tabBar().moveTab(_current_index, _target_index)
+
+            def _save_priority_habitat_tab_order(_from_index=None, _to_index=None):
+                QSettings().setValue(
+                    _tab_order_key,
+                    [tabs.widget(i).property("biomeTabId")
+                     for i in range(tabs.count())],
+                )
+
+            tabs.tabBar().tabMoved.connect(_save_priority_habitat_tab_order)
 
             layout.addWidget(tabs)
 
@@ -9338,6 +9398,21 @@ class DeskStudyMixin:
         if map_type == "EPSL Map" and _region.is_scotland():
             self._epsl_scotland_notice()
             return
+        # Desk-study maps must be based on an actual completed search. If the
+        # matching overlay is not already on, load and show it before building
+        # the layout. This prevents an unloaded dataset being reported as
+        # "none found" and makes the map buttons self-contained.
+        if map_type == "EPSL Map" and not self._epsl_btn.isChecked():
+            self._epsl_btn.setChecked(True)
+            self._on_epsl_toggle(True)
+        elif (map_type == "Designated Sites Map"
+              and not self._ds_toggle_all_btn.isChecked()):
+            self._ds_toggle_all_btn.setChecked(True)
+            self._on_ds_toggle_all(True)
+        elif (map_type == "Priority Habitats Map"
+              and not self._phi_toggle_all_btn.isChecked()):
+            self._phi_toggle_all_btn.setChecked(True)
+            self._on_phi_toggle_all(True)
         # GCN map only: if the eDNA pond layer is switched on, let the user pick
         # whether/which results to include. No prompt when it isn't on.
         if map_type == "GCN Risk Zones Map" and not self._prompt_edna_map_options():
@@ -9359,12 +9434,10 @@ class DeskStudyMixin:
                 and not getattr(self, "_ds_full_search_had_results", False)):
             meta["empty_status"] = (
                 "No designated sites found within the search area")
-        if map_type == "EPSL Map":
-            from qgis.core import QgsProject
-            epsl_layers = QgsProject.instance().mapLayersByName(
-                "EPSL Locations")
-            if not any(layer.featureCount() > 0 for layer in epsl_layers):
-                meta["empty_status"] = "None found within 2 km"
+        if (map_type == "EPSL Map"
+                and getattr(self, "_epsl_full_search_completed", False)
+                and not getattr(self, "_epsl_full_search_had_results", False)):
+            meta["empty_status"] = "None found within 2 km"
         override = getattr(self, "_map_name_overrides", {}).get(map_type)
         if override:
             meta["title"] = override
