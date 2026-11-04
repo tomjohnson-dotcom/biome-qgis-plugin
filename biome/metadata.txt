@@ -1,6 +1,6 @@
 [general]
 name=Biome
-qgisMinimumVersion=3.22
+qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=Biome — BNG habitat mapping tool for QGIS
 version=2.10.7
@@ -46,7 +46,7 @@ changelog=
         • Expanded the Desk Study with designated sites, priority habitats, ancient woodland, SSSI Impact Risk Zones, protected-species licences, GCN risk zones, water bodies, TPOs, LPA resources and Scottish regional sources
         • Added configurable Final Map layouts, Google Earth spotlight export and a self-contained 3D site viewer
         • Updated the Georeferencer workflow around its principal use: aligning architects' plans with the mapped site; drone orthophotos and other imagery remain supported
-        • Added QGIS 4 and PyQt6 compatibility while retaining support for QGIS 3.22 and later
+        • Migrated Biome to QGIS 4 and PyQt6
         • Updated BNG guidance for the changes effective from 6 August 2026 and the NSIP commencement date of 2 November 2026
         • Rewritten and expanded the illustrated user guide and README, with current workflows, rendered interface examples and troubleshooting guidance
     1.7 - Biome Mode: optional app-wide moss & chalk restyle of QGIS (menu bar, dialogs, panels), hides all toolbars and the Browser/Layers panels; fully reversible with state snapshot, persists across sessions; wordmark added to panel footer

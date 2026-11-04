@@ -659,16 +659,26 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         target_layer.reload(); target_layer.updateExtents(); target_layer.triggerRepaint()
 
         # Stamp the shared pair_id on the SOURCE too (trees/hedges/water only) so
-        # the classifier reads baseline+proposed as one Retained feature.
+        # the classifier reads baseline+proposed as one Retained feature. Also
+        # replace the source's former standalone status (normally Created when
+        # copying proposed -> baseline). The proposed-tree renderer reads the
+        # stored Retention Category, whereas Manager derives status from pair_id;
+        # leaving Created here made a correctly linked retained tree stay green.
         if pair_token:
             try:
                 pidx = src_layer.fields().indexOf("pair_id")
                 if pidx < 0:
                     LayerManager._ensure_pair_id(src_layer)
                     pidx = src_layer.fields().indexOf("pair_id")
+                updates = {}
                 if pidx >= 0:
-                    src_layer.dataProvider().changeAttributeValues(
-                        {fid: {pidx: pair_token}})
+                    updates[pidx] = pair_token
+                for field_name in ("retention", "Retention Category"):
+                    ridx = src_layer.fields().indexOf(field_name)
+                    if ridx >= 0:
+                        updates[ridx] = "Retained"
+                if updates:
+                    src_layer.dataProvider().changeAttributeValues({fid: updates})
                     src_layer.reload(); src_layer.triggerRepaint()
             except Exception:
                 pass
@@ -6866,8 +6876,33 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             bc = _cond(feat, layer) if is_baseline else _cond(twin, other)
             pc = _cond(twin, other) if is_baseline else _cond(feat, layer)
             if bc in order and pc in order and order.index(pc) > order.index(bc):
-                return "Enhanced", "Linked baseline+proposed pair, condition uplift"
-            return "Retained", "Linked baseline+proposed pair — retained, no discount"
+                derived = "Enhanced"
+                tooltip = "Linked baseline+proposed pair, condition uplift"
+            else:
+                derived = "Retained"
+                tooltip = "Linked baseline+proposed pair — retained, no discount"
+
+            # Repair legacy/copied pairs whose linkage is correct but whose
+            # stored display status still says Created. Manager has always
+            # derived the right result from pair_id; the map renderer reads
+            # Retention Category, so keep both representations synchronised.
+            def _sync_stored_status(lyr, linked_feat):
+                changes = {}
+                for field_name in ("retention", "Retention Category"):
+                    idx = lyr.fields().indexOf(field_name)
+                    if idx >= 0 and str(linked_feat[idx] or "").strip() != derived:
+                        changes[idx] = derived
+                if changes:
+                    lyr.dataProvider().changeAttributeValues(
+                        {linked_feat.id(): changes})
+                    lyr.triggerRepaint()
+
+            try:
+                _sync_stored_status(layer, feat)
+                _sync_stored_status(other, twin)
+            except Exception:
+                pass
+            return derived, tooltip
 
         # no linked twin -> classified purely by which layer it's in
         if is_baseline:

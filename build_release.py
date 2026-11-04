@@ -63,7 +63,7 @@ def write_catalogue(info, version, archive):
     <description><![CDATA[{description}]]></description>
     <about><![CDATA[{about}]]></about>
     <version>{escape(version)}</version>
-    <qgis_minimum_version>{escape(info.get("qgisminimumversion", "3.22"))}</qgis_minimum_version>
+    <qgis_minimum_version>{escape(info.get("qgisminimumversion", "4.0"))}</qgis_minimum_version>
     <qgis_maximum_version>{escape(info.get("qgismaximumversion", "4.99"))}</qgis_maximum_version>
     <author_name>{escape(info.get("author", "Tom Johnson"))}</author_name>
     <homepage>{REPOSITORY_URL}#readme</homepage>

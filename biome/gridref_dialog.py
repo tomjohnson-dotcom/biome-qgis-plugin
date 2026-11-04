@@ -1005,6 +1005,8 @@ _PRA_POINT_SVG: Dict[str, str] = {
     "Gap Around Window / Door Frame":  "gap_around_frame.svg",
     "Loft Access Point":               "loft_access_point.svg",
     # Trees
+    "PRF-I":                           "prf_i_tree.svg",
+    "PRF-M":                           "prf_m_tree.svg",
     "Tree Cavity / Rot Hole":          "tree_cavity.svg",
     "Tree Split / Crack":              "tree_split.svg",
     "Lifting Bark":                    "lifting_bark.svg",
@@ -1023,6 +1025,7 @@ _PRA_POINT_EMOJI: Dict[str, str] = {
     "Gap Under Coping Stones": "🧱", "Air Brick / Vent": "🧱",
     "Cavity Wall Access": "🧱", "Gap Around Window / Door Frame": "🪟",
     "Loft Access Point": "🪜",
+    "PRF-I": "🌳", "PRF-M": "🌳",
     "Tree Cavity / Rot Hole": "🌳", "Tree Split / Crack": "🌳",
     "Lifting Bark": "🌳", "Woodpecker Hole": "🌳", "Dense Ivy": "🌿",
     "Suggested Surveyor Position": "➡️",
@@ -1037,6 +1040,7 @@ _PRA_BUILDING_PRFS = [
     "Loft Access Point",
 ]
 _PRA_TREE_PRFS = [
+    "PRF-I", "PRF-M",
     "Tree Cavity / Rot Hole", "Tree Split / Crack", "Lifting Bark",
     "Woodpecker Hole", "Dense Ivy",
 ]

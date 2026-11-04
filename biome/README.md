@@ -2,7 +2,7 @@
 
 Biome is an ecological mapping and Biodiversity Net Gain (BNG) plugin for QGIS. It brings habitat mapping, condition assessment, ecological desk-study searches, field data capture, map production, and Statutory Biodiversity Metric export into one dock panel.
 
-The current release is version 2.5 and supports QGIS 3.22 and later, including QGIS 4.
+Biome requires QGIS 4.0 or later.
 
 ## Features
 
@@ -52,7 +52,7 @@ The current release is version 2.5 and supports QGIS 3.22 and later, including Q
 
 ## Requirements
 
-- QGIS 3.22 or later, or QGIS 4.
+- QGIS 4.0 or later.
 - A saved `.qgs` or `.qgz` project before project data can be created.
 - Internet access for online basemaps, geocoding, external links, and live desk-study services.
 - Microsoft Excel or another macro-compatible spreadsheet application to open and recalculate the exported `.xlsm` workbook.
@@ -150,7 +150,7 @@ biome/
 
 ## Development and validation
 
-The same codebase supports PyQt5/QGIS 3 and PyQt6/QGIS 4. Use only `qgis.PyQt` imports and fully scoped Qt and QGIS enums. Run syntax and static checks with the system Python, then test behaviour in both supported QGIS generations. See `CLAUDE.md` for the compatibility, geometry, theming, Field Mapper, and regional-data rules that govern changes.
+Biome targets PyQt6/QGIS 4. Use only `qgis.PyQt` imports and fully scoped Qt and QGIS enums. Run syntax and static checks with the system Python, then test behaviour in supported QGIS 4 releases. See `CLAUDE.md` for the compatibility, geometry, theming, Field Mapper, and regional-data rules that govern changes.
 
 Regenerate the guide from the live habitat and feature registries with a QGIS Python environment:
 

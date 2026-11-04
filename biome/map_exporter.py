@@ -1413,15 +1413,13 @@ def _bake_tree_figures(layer, phase, show_area, show_units):
 
 
 def _strip_phase_from_legend(legend, max_chars=None):
-    """Remove the "Baseline"/"Proposed"/"Existing" phase word from a legend's
-    layer headings and category labels.
+    """Remove redundant phase wording from legend headings and labels.
 
     The map title already states which phase the map shows, so repeating it on
-    every legend heading ("Baseline - Area Habitats") and on every tree entry
-    ("Proposed Large Urban Tree") is redundant. This strips a leading phase word
-    (and an optional " - " / " " separator) from both, leaving e.g.
-    "Area Habitats" and "Large Urban Tree". Habitat category labels have no such
-    prefix and are left untouched. Labels are wrapped at *max_chars* — the
+    every legend heading ("Baseline - Area Habitats") is redundant. Baseline
+    tree entries also omit "Existing", because every baseline tree is existing;
+    proposed tree entries retain "Existing" so they remain visibly distinct
+    from "Created" trees. Labels are wrapped at *max_chars* — the
     caller passes the width of the column layout the fitter chose, so a
     two-column key gets narrower lines.
     """
@@ -1433,9 +1431,11 @@ def _strip_phase_from_legend(legend, max_chars=None):
         model = legend.model()
         root  = model.rootGroup()
 
-        def _strip(text):
+        def _strip(text, preserve_existing=False):
             s = str(text or "")
-            for phase in ("Baseline", "Proposed", "Existing"):
+            phases = ("Baseline", "Proposed") if preserve_existing else (
+                "Baseline", "Proposed", "Existing")
+            for phase in phases:
                 for sep in (" - ", " – ", " — ", " "):
                     pre = phase + sep
                     if s.startswith(pre):
@@ -1461,6 +1461,12 @@ def _strip_phase_from_legend(legend, max_chars=None):
                     tree_lyr.setName(stripped)
             except Exception:
                 pass
+            try:
+                source_name = str(tree_lyr.layer().name() or "").lower()
+                preserve_existing = ("proposed" in source_name
+                                     and "tree" in source_name)
+            except Exception:
+                preserve_existing = False
             # Category / rule labels under this layer: strip the phase word and
             # wrap long names so they don't run off the panel edge. Wrapping has
             # to happen here (runs on every habitat map) rather than only in the
@@ -1469,15 +1475,40 @@ def _strip_phase_from_legend(legend, max_chars=None):
             # layer-tree node) NOT node.setUserLabel: the transient node label is
             # dropped when the legend regenerates its nodes (e.g. when the font
             # tier is applied later), which left the name unwrapped at render.
+            nodes = list(model.layerLegendNodes(tree_lyr))
+            node_indices = list(range(len(nodes)))
+
+            # Older saved per-feature colour renderers used a labelled wrapper
+            # for their untouched rules. It is an implementation detail, not a
+            # habitat, and must never appear in a report figure. Prune it at
+            # export as well as repairing the live renderer in Manager, so an
+            # old project cannot leak "(ORIGINAL STYLE)" into a new map.
+            technical = []
+            for idx, node in enumerate(nodes):
+                label = str(node.data(_Qt.ItemDataRole.DisplayRole) or "")
+                normalised = " ".join(label.strip().lower().split())
+                if normalised in ("(original style)", "original style"):
+                    technical.append(idx)
+            if technical:
+                keep = [idx for idx in range(len(nodes)) if idx not in technical]
+                QgsMapLayerLegendUtils.setLegendNodeOrder(tree_lyr, keep)
+                model.refreshLayerLegend(tree_lyr)
+                nodes = list(model.layerLegendNodes(tree_lyr))
+                # setLegendNodeUserLabel addresses the renderer's original node
+                # index, not the row's new visible position after pruning.
+                node_indices = keep
+
             changed = False
-            for idx, node in enumerate(model.layerLegendNodes(tree_lyr)):
+            for idx, node in enumerate(nodes):
                 label = node.data(_Qt.ItemDataRole.DisplayRole) or ""
-                stripped = _strip(label)
+                stripped = _strip(label, preserve_existing=preserve_existing)
                 wrapped = _wrap_legend_label(stripped, max_chars)
                 if wrapped and wrapped != label:
                     try:
                         QgsMapLayerLegendUtils.setLegendNodeUserLabel(
-                            tree_lyr, idx, wrapped)
+                            tree_lyr,
+                            node_indices[idx] if idx < len(node_indices) else idx,
+                            wrapped)
                         changed = True
                     except Exception:
                         node.setUserLabel(wrapped)

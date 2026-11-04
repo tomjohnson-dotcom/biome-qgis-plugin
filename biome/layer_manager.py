@@ -454,7 +454,9 @@ class LayerManager:
     def sync_tree_symbol_sizes(self):
         """Bring both Individual Trees layers' rule-marker sizes in line with
         TREE_SYMBOL_SIZES_MM. Idempotent; leaves colours (e.g. greenified
-        created trees) and rule labels untouched."""
+        created trees) untouched. Also normalises phase wording in rule labels:
+        baseline is self-evident, while the proposed map distinguishes Existing
+        trees from Created trees."""
         from qgis.core import QgsRuleBasedRenderer, QgsMarkerSymbol
         for layer_key in ("baseline_trees", "proposed_trees"):
             layer = self._find_layer(LAYER_NAMES[layer_key])
@@ -477,6 +479,23 @@ class LayerManager:
                     label = (child.label() or "").split("\n")[0]
                     if "Tree" not in label:
                         continue
+                    full_label = child.label() or "Tree"
+                    first, sep, figures = full_label.partition("\n")
+                    bare = first
+                    for prefix in ("Existing ", "Proposed ", "Created "):
+                        if bare.startswith(prefix):
+                            bare = bare[len(prefix):]
+                            break
+                    if layer_key == "baseline_trees":
+                        wanted = bare
+                    elif first.startswith("Created "):
+                        wanted = "Created " + bare
+                    else:
+                        wanted = "Existing " + bare
+                    wanted += (sep + figures) if sep else ""
+                    if wanted != full_label:
+                        child.setLabel(wanted)
+                        changed = True
                     size_mm = None
                     for cls, mm in self.TREE_SYMBOL_SIZES_MM.items():
                         if cls in label:
@@ -1397,8 +1416,10 @@ class LayerManager:
             clone.setFilterExpression(
                 f'({base}) AND "Retention Category" = \'Created\'')
             lbl = child.label() or "Tree"
-            if lbl.startswith("Proposed "):
-                lbl = lbl[len("Proposed "):]
+            for prefix in ("Proposed ", "Existing ", "Created "):
+                if lbl.startswith(prefix):
+                    lbl = lbl[len(prefix):]
+                    break
             clone.setLabel("Created " + lbl)
             sym = clone.symbol()
             if sym is not None:

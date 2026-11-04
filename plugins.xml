@@ -21,7 +21,7 @@ It supports the full statutory BNG workflow under Schedule 7A of the Environment
 
 Data is stored in a GeoPackage alongside the QGIS project file. Requires a saved .qgz project to function.]]></about>
     <version>2.10.7</version>
-    <qgis_minimum_version>3.22</qgis_minimum_version>
+    <qgis_minimum_version>4.0</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <author_name>Tom Johnson</author_name>
     <homepage>https://github.com/tomjohnson-dotcom/biome-qgis-plugin#readme</homepage>

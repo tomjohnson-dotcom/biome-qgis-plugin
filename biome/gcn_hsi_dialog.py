@@ -395,7 +395,7 @@ class GcnHsiDialog(QDialog):
         compare_body.addStretch(1)
         compare_scroll.setWidget(compare_inner)
 
-        self._tabs.addTab(compare_scroll, "Compare ponds")
+        self._tabs.addTab(compare_scroll, "Compare SWBs")
         self._tabs.addTab(hsi_scroll, "HSI assessment")
         outer.addWidget(self._tabs, 1)
         outer.addWidget(self._build_footer())
@@ -434,7 +434,7 @@ class GcnHsiDialog(QDialog):
         g.setHorizontalSpacing(8)
         g.setVerticalSpacing(6)
         self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("e.g. Pond 1")
+        self._name_edit.setPlaceholderText("e.g. SWB-01")
         self._name_edit.setText(self._suggest_next_pond_name())
         self._ref_edit = QLineEdit()
         self._ref_edit.setPlaceholderText("e.g. SK 1234 5678")
@@ -462,11 +462,11 @@ class GcnHsiDialog(QDialog):
         ref_layout.addWidget(self._ref_pick_btn)
         self._distance_edit = QLineEdit()
         self._distance_edit.setReadOnly(True)
-        self._distance_edit.setPlaceholderText("Not available for a manual pond")
+        self._distance_edit.setPlaceholderText("Not available for a manual SWB")
         self._date_edit = QLineEdit()
         from .config import qt_date_format
         self._date_edit.setText(QDate.currentDate().toString(qt_date_format()))
-        g.addWidget(self._caption("Pond name"), 0, 0)
+        g.addWidget(self._caption("SWB reference"), 0, 0)
         g.addWidget(self._name_edit, 0, 1)
         g.addWidget(self._caption("Grid reference"), 1, 0)
         g.addWidget(ref_row, 1, 1)
@@ -591,7 +591,7 @@ class GcnHsiDialog(QDialog):
         try:
             from qgis.utils import iface
             iface.messageBar().pushMessage(
-                "Pick pond location",
+                "Pick SWB location",
                 "Click the live map to fill the grid reference. Right-click or press Esc to cancel.",
                 level=Qgis.MessageLevel.Info, duration=0)
         except Exception:
@@ -655,8 +655,8 @@ class GcnHsiDialog(QDialog):
         try:
             from qgis.utils import iface
             iface.messageBar().pushMessage(
-                "Draw pond area",
-                "Left-click around the pond boundary. Right-click to finish; Esc cancels.",
+                "Draw SWB area",
+                "Left-click around the SWB boundary. Right-click to finish; Esc cancels.",
                 level=Qgis.MessageLevel.Info, duration=0)
         except Exception:
             pass
@@ -673,15 +673,15 @@ class GcnHsiDialog(QDialog):
             area_m2 = max(1, int(round(measured.area())))
             spin = self._cards["SI2"]["spin"]
             spin.setValue(min(spin.maximum(), area_m2))
-            self._status.setText("Pond area measured from map: %s m²" % format(area_m2, ","))
+            self._status.setText("SWB area measured from map: %s m²" % format(area_m2, ","))
         except Exception as ex:
-            self._status.setText("Could not measure the pond area: %s" % ex)
+            self._status.setText("Could not measure the SWB area: %s" % ex)
         finally:
             self._end_pond_area_draw()
 
     def _cancel_pond_area_draw(self):
         self._end_pond_area_draw()
-        self._status.setText("Pond-area drawing cancelled.")
+        self._status.setText("SWB-area drawing cancelled.")
 
     def _end_pond_area_draw(self, reopen=True):
         canvas = self._map_canvas()
@@ -887,10 +887,10 @@ class GcnHsiDialog(QDialog):
                 shl.addWidget(b)
         irow.addWidget(stepper)
         if key == "SI2":
-            draw = QPushButton("Draw pond area")
+            draw = QPushButton("Draw SWB area")
             draw.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             draw.setToolTip(
-                "Temporarily draw the pond boundary on the live map and use its area")
+                "Temporarily draw the SWB boundary on the live map and use its area")
             draw.setStyleSheet(bqss + " QPushButton { padding:5px 10px; }")
             draw.clicked.connect(self._start_pond_area_draw)
             irow.addWidget(draw)
@@ -1001,11 +1001,11 @@ class GcnHsiDialog(QDialog):
         return w
 
     def _build_save_pond_button(self):
-        save = QPushButton("Save pond")
+        save = QPushButton("Save SWB")
         save.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         save.setMinimumHeight(42)
         save.setStyleSheet(self._btn_qss(filled=True))
-        save.setToolTip("Save this completed assessment to Compare ponds")
+        save.setToolTip("Save this completed assessment to Compare SWBs")
         save.clicked.connect(self._add_pond)
         return save
 
@@ -1017,12 +1017,12 @@ class GcnHsiDialog(QDialog):
         v = QVBoxLayout(w)
         v.setContentsMargins(12, 10, 12, 12)
         v.setSpacing(6)
-        title = QLabel("Compare ponds")
+        title = QLabel("Compare standing water bodies")
         title.setStyleSheet("font-family:%s; font-size:13px; font-weight:600; color:%s;"
                             " background:transparent;" % (theme.FONT_SEMIBOLD, theme.INK))
         v.addWidget(title)
-        desc = QLabel("All Pond Mapper water bodies are listed, including those without an HSI. "
-                      "Set each pond's survey status here; choosing survey undertaken opens that pond above for scoring. "
+        desc = QLabel("All mapped standing water bodies are listed, including those without an HSI. "
+                      "Set each SWB's survey status here; choosing survey undertaken opens that SWB above for scoring. "
                       "Use Edit to reopen and amend a completed assessment.")
         desc.setWordWrap(True)
         desc.setStyleSheet("color:%s; font-size:11px; background:transparent;" % theme.MUTED)
@@ -1031,7 +1031,7 @@ class GcnHsiDialog(QDialog):
         factor_headers = ["%s %s" % (f["key"], f["title"]) for f in G.FACTORS]
         self._table = QTableWidget(0, 17)
         self._table.setHorizontalHeaderLabels(
-            ["Pond", "Grid ref", "Distance", "Status"] + factor_headers
+            ["SWB", "Grid ref", "Distance", "Status"] + factor_headers
             + ["HSI", "Suitability", "Edit"])
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1063,12 +1063,12 @@ class GcnHsiDialog(QDialog):
         copyr = QPushButton("📋  Copy report")
         copyr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         copyr.setStyleSheet(self._btn_qss(filled=True))
-        copyr.setToolTip("Copy a report containing every pond and completed HSI")
+        copyr.setToolTip("Copy a report containing every SWB and completed HSI")
         copyr.clicked.connect(self._copy_comparison_report)
         export = QPushButton("🖼  Export PNG")
         export.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         export.setStyleSheet(self._btn_qss())
-        export.setToolTip("Export a single summary image containing all ponds")
+        export.setToolTip("Export a single summary image containing all SWBs")
         export.clicked.connect(self._export_comparison_png)
         copyt = QPushButton("Copy table")
         copyt.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -1160,7 +1160,7 @@ class GcnHsiDialog(QDialog):
             dens = G.density_for_count(v)
             refs["density"].setText("= %.2f / km²" % dens)
             refs["graph"].set_marker(dens, si, omit)
-            self._display[key] = "%d pond%s (%.2f / km²)" % (v, "" if v == 1 else "s", dens)
+            self._display[key] = "%d SWB%s (%.2f / km²)" % (v, "" if v == 1 else "s", dens)
         else:
             refs["graph"].set_marker(v, si, omit)
             self._display[key] = "%d %s%s" % (v, factor["unit"],
@@ -1204,14 +1204,14 @@ class GcnHsiDialog(QDialog):
     # ---- report + table --------------------------------------------------
     def _report_text(self):
         hsi, n, complete = G.compute_hsi(self._state)
-        name = self._name_edit.text().strip() or "(unnamed pond)"
+        name = self._name_edit.text().strip() or "(unnamed SWB)"
         ref = self._ref_edit.text().strip() or "—"
         distance = self._distance_edit.text().strip() or "—"
         lines = [
             "Great Crested Newt — Habitat Suitability Index (HSI)",
             "Method: ARG UK Advice Note 5 (2010), after Oldham et al. (2000)",
             "",
-            "Pond: %s    Grid ref: %s    Distance from site: %s"
+            "SWB: %s    Grid ref: %s    Distance from site: %s"
             % (name, ref, distance),
             "",
         ]
@@ -1222,7 +1222,7 @@ class GcnHsiDialog(QDialog):
         lines.append("")
         if complete and hsi is not None:
             extra = "  (SI2 omitted — 9 indices)" if n == 9 else ""
-            lines.append("HSI = %.2f%s    Pond suitability: %s"
+            lines.append("HSI = %.2f%s    Suitability: %s"
                          % (hsi, extra, G.band_for(hsi).upper()))
         else:
             lines.append("HSI = —    (set all indices first)")
@@ -1237,7 +1237,7 @@ class GcnHsiDialog(QDialog):
     def _add_pond(self):
         hsi, _n, complete = G.compute_hsi(self._state)
         if not complete or hsi is None:
-            self._status.setText("Set all indices before adding the pond.")
+            self._status.setText("Set all indices before adding the SWB.")
             return
         name = self._name_edit.text().strip() or "(unnamed)"
         ref = self._ref_edit.text().strip() or "—"
@@ -1288,7 +1288,7 @@ class GcnHsiDialog(QDialog):
             action = "Updated"
         self._refresh_pond_table()
         if self._save_ponds():
-            message = "%s “%s” in this project (%d pond%s saved)." % (
+            message = "%s “%s” in this project (%d SWB%s saved)." % (
                 action, name, len(self._ponds),
                 "" if len(self._ponds) == 1 else "s")
             self._start_manual_pond()
@@ -1310,7 +1310,7 @@ class GcnHsiDialog(QDialog):
             status_combo.addItem(label, code)
         idx = status_combo.findData(status)
         status_combo.setCurrentIndex(max(0, idx))
-        status_combo.setToolTip("Set the survey outcome for this pond")
+        status_combo.setToolTip("Set the survey outcome for this SWB")
         status_combo.currentIndexChanged.connect(
             lambda _i, p=pond, c=status_combo: self._on_pond_status_changed(
                 p, str(c.currentData() or "not_assessed")))
@@ -1330,7 +1330,7 @@ class GcnHsiDialog(QDialog):
         edit.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         edit.setStyleSheet(self._btn_qss())
         edit.setEnabled(hsi is not None)
-        edit.setToolTip("Reopen and amend this pond's saved HSI assessment")
+        edit.setToolTip("Reopen and amend this SWB's saved HSI assessment")
         edit.clicked.connect(lambda _checked=False, p=pond: self._edit_pond(p))
         self._table.setCellWidget(r, 16, edit)
 
@@ -1404,7 +1404,7 @@ class GcnHsiDialog(QDialog):
                     self._cards[key]["spin"].setValue(value)
         self._tabs.setCurrentIndex(1)
         self._hsi_scroll.verticalScrollBar().setValue(0)
-        self._status.setText("Editing the saved HSI assessment for %s." % pond.get("name", "this pond"))
+        self._status.setText("Editing the saved HSI assessment for %s." % pond.get("name", "this SWB"))
 
     def _on_pond_status_changed(self, pond, status):
         pond["status"] = status
@@ -1442,7 +1442,7 @@ class GcnHsiDialog(QDialog):
         self._tabs.setCurrentIndex(1)
         self._hsi_scroll.verticalScrollBar().setValue(0)
         self._name_edit.setFocus()
-        self._status.setText("Complete the HSI for %s." % pond.get("name", "this pond"))
+        self._status.setText("Complete the HSI for %s." % pond.get("name", "this SWB"))
 
     def _clear_hsi_form(self):
         """Clear score controls before starting an HSI for another pond."""
@@ -1483,7 +1483,7 @@ class GcnHsiDialog(QDialog):
             project.setDirty(True)
             return True
         except Exception as ex:
-            self._status.setText("Could not save the pond list to the project: %s" % ex)
+            self._status.setText("Could not save the SWB list to the project: %s" % ex)
             return False
 
     def _load_saved_ponds(self):
@@ -1557,18 +1557,18 @@ class GcnHsiDialog(QDialog):
             self._refresh_pond_table()
             if self._ponds:
                 self._save_ponds()
-                self._status.setText("Loaded %d pond%s from this project."
-                                     % (len(self._ponds), "" if len(self._ponds) == 1 else "s"))
+                self._status.setText("Loaded %d standing water bod%s."
+                                     % (len(self._ponds), "y" if len(self._ponds) == 1 else "ies"))
         except Exception:
             self._ponds = []
             self._table.setRowCount(0)
-            self._status.setText("The saved pond comparison list could not be read.")
+            self._status.setText("The saved SWB comparison list could not be read.")
 
     def _copy_table(self):
         if not self._ponds:
-            self._status.setText("Add a pond to the table first.")
+            self._status.setText("Add an SWB to the table first.")
             return
-        header = ["Pond", "Grid ref", "Distance from site", "Survey status"] + [
+        header = ["SWB", "Grid ref", "Distance from site", "Survey status"] + [
             "%s %s" % (f["key"], f["title"]) for f in G.FACTORS
         ] + ["HSI", "Suitability"]
         rows = ["\t".join(header)]
@@ -1582,22 +1582,22 @@ class GcnHsiDialog(QDialog):
             rows.append("\t".join(cells))
         QApplication.clipboard().setText("\n".join(rows))
         n = len(self._ponds)
-        self._status.setText("Comparison table copied (%d pond%s) ✓" % (n, "" if n == 1 else "s"))
+        self._status.setText("Comparison table copied (%d SWB%s) ✓" % (n, "" if n == 1 else "s"))
 
     def _copy_comparison_report(self):
         if not self._ponds:
-            self._status.setText("There are no ponds to include in the report.")
+            self._status.setText("There are no standing water bodies to include in the report.")
             return
-        lines = ["Great Crested Newt — Pond Assessment Summary", ""]
+        lines = ["Great Crested Newt — Standing Water Body Assessment Summary", ""]
         for pond in self._ponds:
             status = POND_STATUS_LABELS.get(
                 pond.get("status"), "Not assessed")
-            lines.append("Pond: %s" % pond.get("name", "(unnamed)"))
+            lines.append("SWB: %s" % pond.get("name", "(unnamed)"))
             lines.append("Grid reference: %s    Distance from site: %s" % (
                 pond.get("ref") or "—", pond.get("distance_label") or "—"))
             lines.append("Survey status: %s" % status)
             if pond.get("hsi") is not None:
-                lines.append("HSI: %.2f    Pond suitability: %s" % (
+                lines.append("HSI: %.2f    Suitability: %s" % (
                     pond["hsi"], str(pond.get("band") or "—").upper()))
                 state = pond.get("state") or {}
                 lines.append("Suitability indices: " + "; ".join(
@@ -1607,19 +1607,19 @@ class GcnHsiDialog(QDialog):
                     for factor in G.FACTORS))
             lines.append("")
         QApplication.clipboard().setText("\n".join(lines).rstrip())
-        self._status.setText("Multi-pond assessment report copied (%d ponds) ✓"
+        self._status.setText("Multi-SWB assessment report copied (%d SWBs) ✓"
                              % len(self._ponds))
 
     def _export_comparison_png(self):
         if not self._ponds:
-            self._status.setText("There are no ponds to export.")
+            self._status.setText("There are no standing water bodies to export.")
             return
         base = os.path.join(os.path.expanduser("~"), "Desktop")
         if not os.path.isdir(base):
             base = os.path.expanduser("~")
-        default = os.path.join(base, "GCN_HSI_pond_summary.png")
+        default = os.path.join(base, "GCN_HSI_SWB_summary.png")
         path, _f = QFileDialog.getSaveFileName(
-            self, "Export pond assessment summary", default, "PNG image (*.png)")
+            self, "Export SWB assessment summary", default, "PNG image (*.png)")
         if not path:
             return
         if not path.lower().endswith(".png"):
@@ -1627,113 +1627,140 @@ class GcnHsiDialog(QDialog):
 
         scale = 2
         width = 1200
-        row_h = 142
-        legend_h = 116
-        height = 150 + row_h * len(self._ponds) + legend_h
+        assessed_row_h = 136
+        summary_row_h = 40
+        footer_h = 84
+        rows_h = sum(
+            assessed_row_h if pond.get("hsi") is not None else summary_row_h
+            for pond in self._ponds
+        )
+        height = 118 + rows_h + footer_h
         image = QImage(width * scale, height * scale, QImage.Format.Format_RGB32)
-        image.fill(QColor(theme.SURFACE))
+        image.fill(QColor(theme.CARD))
         painter = QPainter(image)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         painter.scale(scale, scale)
 
-        painter.fillRect(0, 0, width, 82, QColor(theme.ACCENT_DARK))
-        font = QFont(theme.FONT_SEMIBOLD); font.setPixelSize(22); font.setBold(True)
-        painter.setFont(font); painter.setPen(QColor("white"))
-        painter.drawText(QRectF(28, 15, width - 56, 34),
+        try:
+            theme._load_fonts()
+        except Exception:
+            pass
+        font = QFont(theme.FONT_SEMIBOLD); font.setPixelSize(18); font.setBold(True)
+        painter.setFont(font); painter.setPen(QColor(theme.INK))
+        painter.drawText(QRectF(28, 14, width - 56, 28),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         "Great Crested Newt — Pond Assessment Summary")
-        font.setPixelSize(11); font.setBold(False); painter.setFont(font)
-        painter.setPen(QColor("#CFE3D6"))
-        painter.drawText(QRectF(28, 49, width - 56, 20),
+                         "Great crested newt habitat suitability index summary")
+        font.setPixelSize(10); font.setBold(False); painter.setFont(font)
+        painter.setPen(QColor(theme.MUTED))
+        painter.drawText(QRectF(28, 45, width - 56, 18),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         "%d ponds recorded in this QGIS project" % len(self._ponds))
+                         "Standing water body assessment results (n = %d)" % len(self._ponds))
+        painter.setPen(QPen(QColor(theme.BORDER_STRONG), 1))
+        painter.drawLine(28, 72, width - 28, 72)
 
-        columns = [(28, 120, "Pond"), (148, 150, "Grid reference"),
-                   (298, 145, "Distance"), (443, 405, "Survey status"),
-                   (848, 100, "HSI"), (948, 224, "Suitability")]
-        y = 98
-        painter.fillRect(24, y, width - 48, 34, QColor(theme.SUNKEN))
-        font.setPixelSize(11); font.setBold(True); painter.setFont(font)
+        # The summary and SI cards share one five-column grid, so every score
+        # sits directly beneath a main heading instead of floating between the
+        # table columns. HSI and suitability form one concise result column.
+        grid_x = 28
+        grid_w = (width - 56) / 5.0
+        columns = [
+            (grid_x + index * grid_w, grid_w, heading)
+            for index, heading in enumerate((
+                "SWB", "Grid reference", "Distance", "Survey status",
+                "HSI / Suitability"))
+        ]
+        y = 86
+        painter.fillRect(28, y, width - 56, 32, QColor("#F1F2F0"))
+        font.setPixelSize(10); font.setBold(True); painter.setFont(font)
         painter.setPen(QColor(theme.MUTED))
         for x, w, heading in columns:
-            painter.drawText(QRectF(x + 6, y, w - 12, 34),
+            painter.drawText(QRectF(x + 7, y, w - 14, 32),
                              Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                              heading)
-        y += 34
+        painter.setPen(QPen(QColor(theme.BORDER_STRONG), 1))
+        painter.drawLine(28, y + 32, width - 28, y + 32)
+        y += 32
         font.setBold(False); painter.setFont(font)
-        for index, pond in enumerate(self._ponds):
-            bg = theme.CARD if index % 2 == 0 else theme.SURFACE
-            painter.fillRect(24, y, width - 48, row_h, QColor(bg))
-            painter.setPen(QColor(theme.BORDER))
-            painter.drawLine(24, y + row_h, width - 24, y + row_h)
+        for pond in self._ponds:
+            has_assessment = pond.get("hsi") is not None
+            row_h = assessed_row_h if has_assessment else summary_row_h
             status = POND_STATUS_LABELS.get(pond.get("status"), "Not assessed")
+            result = ("%.2f · %s" % (pond["hsi"], pond.get("band") or "—")
+                      if pond.get("hsi") is not None else "—")
             values = [pond.get("name") or "—", pond.get("ref") or "—",
-                      pond.get("distance_label") or "—", status,
-                      "%.2f" % pond["hsi"] if pond.get("hsi") is not None else "—",
-                      pond.get("band") if pond.get("hsi") is not None else "—"]
-            font.setPixelSize(11); font.setBold(False); painter.setFont(font)
-            painter.setPen(QColor(theme.INK))
-            for (x, w, _heading), value in zip(columns, values):
-                painter.drawText(QRectF(x + 6, y, w - 12, 38),
+                      pond.get("distance_label") or "—", status, result]
+            font.setPixelSize(10); painter.setPen(QColor(theme.INK))
+            for value_index, ((x, w, _heading), value) in enumerate(
+                    zip(columns, values)):
+                font.setBold(value_index in (0, 4))
+                painter.setFont(font)
+                painter.drawText(QRectF(x + 7, y, w - 14, 38),
                                  Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                  str(value))
 
-            # Two compact rows of five factors retain the actual assessment
-            # choices (for example Zone A and Rarely dries), not only SI scores.
-            factor_top = y + 42
-            factor_w = (width - 56) / 5.0
-            for factor_index, factor in enumerate(G.FACTORS):
-                grid_row, grid_col = divmod(factor_index, 5)
-                fx = 28 + grid_col * factor_w
-                fy = factor_top + grid_row * 46
-                font.setPixelSize(8); font.setBold(True); painter.setFont(font)
-                painter.setPen(QColor(theme.FAINT))
-                painter.drawText(QRectF(fx + 5, fy, factor_w - 10, 14),
-                                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                                 "%s · %s" % (factor["key"], factor["title"]))
-                font.setPixelSize(9); font.setBold(False); painter.setFont(font)
-                painter.setPen(QColor(theme.INK))
-                painter.drawText(QRectF(fx + 5, fy + 14, factor_w - 10, 28),
-                                 int(Qt.AlignmentFlag.AlignLeft
-                                     | Qt.AlignmentFlag.AlignTop
-                                     | Qt.TextFlag.TextWordWrap),
-                                 self._assessment_text(
-                                     pond, factor, include_si=True))
+            if has_assessment:
+                # Journal-style subordinate table: no divider separates the
+                # SWB row from its SI results; the stronger rule appears only
+                # after the complete assessment block.
+                factor_top = y + 38
+                factor_w = grid_w
+                painter.fillRect(
+                    QRectF(grid_x, factor_top, width - 56, 96),
+                    QColor("#FAFBF9"))
+                painter.setPen(QPen(QColor(theme.BORDER), 0.7))
+                for col_index in range(1, 5):
+                    gx = grid_x + col_index * factor_w
+                    painter.drawLine(QPointF(gx, factor_top),
+                                     QPointF(gx, factor_top + 96))
+                painter.drawLine(QPointF(grid_x, factor_top + 48),
+                                 QPointF(width - 28, factor_top + 48))
+                for factor_index, factor in enumerate(G.FACTORS):
+                    grid_row, grid_col = divmod(factor_index, 5)
+                    fx = grid_x + grid_col * factor_w
+                    fy = factor_top + grid_row * 48
+                    font.setPixelSize(8); font.setBold(False); painter.setFont(font)
+                    painter.setPen(QColor(theme.FAINT))
+                    painter.drawText(QRectF(fx + 8, fy + 5, factor_w - 16, 14),
+                                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                                     "%s · %s" % (factor["key"], factor["title"]))
+                    font.setPixelSize(9); font.setBold(False); painter.setFont(font)
+                    painter.setPen(QColor(theme.INK))
+                    painter.drawText(QRectF(fx + 8, fy + 21, factor_w - 16, 20),
+                                     int(Qt.AlignmentFlag.AlignLeft
+                                         | Qt.AlignmentFlag.AlignTop
+                                         | Qt.TextFlag.TextWordWrap),
+                                     self._assessment_text(
+                                         pond, factor, include_si=True))
+            painter.setPen(QPen(QColor(
+                theme.BORDER_STRONG if has_assessment else theme.BORDER),
+                1.0 if has_assessment else 0.7))
+            painter.drawLine(28, y + row_h, width - 28, y + row_h)
             y += row_h
 
-        # Explain the Lee Brady bands on the exported image itself so the
-        # suitability labels remain meaningful when the PNG is viewed alone.
-        y += 18
-        font.setPixelSize(10); font.setBold(True); painter.setFont(font)
+        # Compact monochrome classification note, suitable for report figures
+        # and greyscale printing.
+        y += 14
+        font.setPixelSize(9); font.setBold(True); painter.setFont(font)
         painter.setPen(QColor(theme.MUTED))
-        painter.drawText(QRectF(28, y, width - 56, 16),
+        painter.drawText(QRectF(28, y, 115, 16),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         "HSI SCORE CATEGORIES (LEE BRADY)")
+                         "HSI classification:")
+        font.setBold(False); painter.setFont(font)
+        painter.drawText(
+            QRectF(143, y, width - 171, 16),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            "Poor <0.50  |  Below average 0.50–0.59  |  Average 0.60–0.69  |  "
+            "Good 0.70–0.79  |  Excellent ≥0.80")
         y += 22
-        legend_x = 28
-        legend_w = (width - 56) / len(G.BANDS)
-        for index, (_threshold, label, score_range) in enumerate(G.BANDS):
-            fg, bg = BAND_STYLE[label]
-            x = legend_x + index * legend_w
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(bg))
-            painter.drawRoundedRect(QRectF(x + 2, y, legend_w - 4, 32), 6, 6)
-            font.setPixelSize(10); font.setBold(True); painter.setFont(font)
-            painter.setPen(QColor(fg))
-            painter.drawText(QRectF(x + 8, y, legend_w - 16, 18),
-                             Qt.AlignmentFlag.AlignCenter, label)
-            font.setPixelSize(9); font.setBold(False); painter.setFont(font)
-            painter.drawText(QRectF(x + 8, y + 16, legend_w - 16, 14),
-                             Qt.AlignmentFlag.AlignCenter, score_range)
-        y += 40
-        font.setPixelSize(9); font.setBold(False); painter.setFont(font)
+        font.setPixelSize(8); font.setBold(False); painter.setFont(font)
         painter.setPen(QColor(theme.FAINT))
         painter.drawText(QRectF(28, y, width - 56, 18),
                          Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                          "HSI describes habitat suitability; it does not confirm great crested newt presence or absence.")
         painter.end()
         ok = image.save(path, "PNG")
-        self._status.setText("Multi-pond summary PNG saved ✓" if ok
+        self._status.setText("Multi-SWB summary PNG saved ✓" if ok
                              else "Could not save the summary PNG.")
 
     def _clear_table(self):
@@ -1805,12 +1832,12 @@ class GcnHsiDialog(QDialog):
         setf(20, "Inter SemiBold", QFont.Weight.DemiBold)
         txt(M, 12, CW, 32, AL, "Great Crested Newt — Habitat Suitability Index", "#FFFFFF")
         setf(11)
-        txt(M, 48, CW, 20, AL, "Pond habitat assessment · ARG UK Advice Note 5 (2010), "
+        txt(M, 48, CW, 20, AL, "Standing water body habitat assessment · ARG UK Advice Note 5 (2010), "
             "after Oldham et al. (2000)", "#CFE3D6")
 
         # Pond details
         y = 100
-        name = self._name_edit.text().strip() or "(unnamed pond)"
+        name = self._name_edit.text().strip() or "(unnamed SWB)"
         ref = self._ref_edit.text().strip() or "—"
         distance = self._distance_edit.text().strip() or "—"
         from .config import qt_date_format
@@ -1896,6 +1923,6 @@ class GcnHsiDialog(QDialog):
         txt(M, y, CW, 36, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
             "HSI = (SI1 × … × SI10) ^ (1/n). A measure of habitat suitability for great crested "
             "newts — not a substitute for survey; higher scores are associated with greater "
-            "pond occupancy.", theme.FAINT)
+            "standing water body occupancy.", theme.FAINT)
         p.end()
         return img

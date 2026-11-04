@@ -7,14 +7,14 @@
   </flags>
   <renderer-v2 type="RuleRenderer" forceraster="0" symbollevels="0" enableorderby="0">
     <rules key="{6e70acb2-6deb-4cee-aa23-9deef4c0df9c}">
-      <rule symbol="0" label="Existing Large Urban Tree" key="{f9b46f98-a796-4220-8557-949f6d146a4c}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
-      <rule symbol="1" label="Existing Large Rural Tree" key="{d3a8a199-3b0e-4c30-b689-d1fa7ee51f63}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
-        <rule symbol="6" label="Existing Very Large Urban Tree" key="{62b0eb59-5d63-4754-97c0-5ae474563921}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Very Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
-        <rule symbol="7" label="Existing Very Large Rural Tree" key="{0013e7aa-f33d-4919-a278-c346f9a72d5b}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Very Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
-      <rule symbol="2" label="Existing Medium Urban Tree" key="{45e9c530-cd32-4262-88c0-c138d5ab1c75}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Medium' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
-      <rule symbol="3" label="Existing Medium Rural Tree" key="{f7a3fdbb-8ba3-4c3a-b894-3c6561359f20}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Medium' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
-      <rule symbol="4" label="Existing Small Urban Tree" key="{2e347645-eea2-49a7-a9af-ca8591d66241}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Small' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
-      <rule symbol="5" label="Existing Small Rural Tree" key="{414ed23b-1b83-42ee-89b1-4d93fa22627a}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Small' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
+      <rule symbol="0" label="Large Urban Tree" key="{f9b46f98-a796-4220-8557-949f6d146a4c}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
+      <rule symbol="1" label="Large Rural Tree" key="{d3a8a199-3b0e-4c30-b689-d1fa7ee51f63}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
+        <rule symbol="6" label="Very Large Urban Tree" key="{62b0eb59-5d63-4754-97c0-5ae474563921}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Very Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
+        <rule symbol="7" label="Very Large Rural Tree" key="{0013e7aa-f33d-4919-a278-c346f9a72d5b}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Very Large' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
+      <rule symbol="2" label="Medium Urban Tree" key="{45e9c530-cd32-4262-88c0-c138d5ab1c75}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Medium' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
+      <rule symbol="3" label="Medium Rural Tree" key="{f7a3fdbb-8ba3-4c3a-b894-3c6561359f20}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Medium' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
+      <rule symbol="4" label="Small Urban Tree" key="{2e347645-eea2-49a7-a9af-ca8591d66241}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Small' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Urban tree'"/>
+      <rule symbol="5" label="Small Rural Tree" key="{414ed23b-1b83-42ee-89b1-4d93fa22627a}" filter="&quot;Category&quot; = 'Existing' AND  &quot;Baseline Tree Size&quot; = 'Small' AND  &quot;Baseline Rural or Urban Tree&quot; = 'Rural tree'"/>
     </rules>
                     <symbols>
       <symbol type="marker" name="0" clip_to_extent="1" alpha="1" force_rhr="0">

@@ -26,10 +26,12 @@ try:
 except Exception:
     VERBATIM = {}
 
-_PASS = "#175E3B"
-_FAIL = "#8F2A23"
-_MUTE = "#8A968D"
-_INK = "#1F4A37"
+_PASS = "#202020"
+_FAIL = "#202020"
+_MUTE = "#666666"
+_INK = "#202020"
+_RULE = "#B8B8B8"
+_HEAD = "#F1F1F1"
 _LEVEL = ("Good", "Moderate", "Poor")
 
 
@@ -70,7 +72,8 @@ def _row(cells):
 
 
 def _td(text, *, align="left", color=None, bold=False, bg=None, width=None):
-    style = "padding:5px 8px; border:1px solid #C9D3CC; font-size:12px; vertical-align:top;"
+    style = ("padding:6px 8px; border:0; border-bottom:1px solid %s; "
+             "font-size:11px; vertical-align:top;") % _RULE
     style += " text-align:%s;" % align
     if color:
         style += " color:%s;" % color
@@ -87,9 +90,10 @@ def build_html(sub, panel, ctrls):
     vb = VERBATIM.get(key, {})
     grade = ctrls.get("grade")
     parts = [
-        '<div style="font-family:Segoe UI, Arial, sans-serif;">',
-        '<div style="font-size:10px; letter-spacing:2px; color:%s;">CONDITION ASSESSMENT</div>' % _MUTE,
-        '<div style="font-size:18px; font-weight:bold; color:%s; padding-bottom:4px;">%s</div>' % (_INK, _esc(sub)),
+        '<div style="font-family:Arial, Helvetica, sans-serif; color:%s;">' % _INK,
+        '<div style="font-size:17px; font-weight:bold; padding-bottom:3px;">Condition assessment</div>',
+        '<div style="font-size:13px; padding-bottom:8px;">%s</div>' % _esc(sub),
+        '<div style="border-top:1px solid %s; height:10px;"></div>' % _INK,
     ]
 
     # Trees this assessment covers (tree sheets only): number + DBH.
@@ -99,8 +103,8 @@ def build_html(sub, panel, ctrls):
         if _no or _dbh:
             _trees.append((_no, _dbh))
     if _trees:
-        _th = _row([_td("Tree no. / ref", bold=True, bg="#EAF2EC", width="55%"),
-                    _td("DBH (cm)", bold=True, bg="#EAF2EC")])
+        _th = _row([_td("Tree no. / ref", bold=True, bg=_HEAD, width="55%"),
+                    _td("DBH (cm)", bold=True, bg=_HEAD)])
         _tb = "".join(_row([_td(_esc(n) or "—"), _td(_esc(d) or "—")]) for (n, d) in _trees)
         parts.append('<div style="font-size:11px; color:%s; margin:2px 0;">Trees assessed</div>' % _MUTE)
         parts.append('<table cellspacing="0" width="55%%">%s%s</table>' % (_th, _tb))
@@ -110,9 +114,9 @@ def build_html(sub, panel, ctrls):
         parts.append('<p style="font-size:12px; color:#2A332D;">%s</p>' % _esc(panel.get("note", "")))
     elif panel["model"] == "lake":
         selected = _lake_state(ctrls)
-        head = _row([_td("HNA attribute", bold=True, bg="#EAF2EC"),
-                     _td("Assessment scope", bold=True, bg="#EAF2EC"),
-                     _td("Class", bold=True, bg="#EAF2EC", align="center", width="60")])
+        head = _row([_td("HNA attribute", bold=True, bg=_HEAD),
+                     _td("Assessment scope", bold=True, bg=_HEAD),
+                     _td("Class", bold=True, bg=_HEAD, align="center", width="60")])
         body = []
         for letter, name, desc in panel["attributes"]:
             value = selected.get(letter)
@@ -131,9 +135,9 @@ def build_html(sub, panel, ctrls):
     elif panel["model"] == "score":
         sel = _score_state(ctrls)
         vinds = vb.get("indicators", {})
-        head = _row([_td("Indicator", bold=True, bg="#EAF2EC", width="40%"),
-                     _td("Assessed condition", bold=True, bg="#EAF2EC"),
-                     _td("Score", bold=True, bg="#EAF2EC", align="center", width="60")])
+        head = _row([_td("Indicator", bold=True, bg=_HEAD, width="40%"),
+                     _td("Assessed condition", bold=True, bg=_HEAD),
+                     _td("Score", bold=True, bg=_HEAD, align="center", width="60")])
         body = []
         total = 0
         for (letter, name, descs) in panel["indicators"]:
@@ -160,9 +164,9 @@ def build_html(sub, panel, ctrls):
     else:
         state = _tick_state(ctrls)
         vcrit = vb.get("criteria", {})
-        head = _row([_td("", bold=True, bg="#EAF2EC", align="center", width="34"),
-                     _td("Criterion", bold=True, bg="#EAF2EC"),
-                     _td("Result", bold=True, bg="#EAF2EC", align="center", width="80")])
+        head = _row([_td("", bold=True, bg=_HEAD, align="center", width="34"),
+                     _td("Criterion", bold=True, bg=_HEAD),
+                     _td("Result", bold=True, bg=_HEAD, align="center", width="80")])
         body = []
         npass = ntot = 0
         for (letter, concise, essential) in panel["criteria"]:
@@ -186,18 +190,14 @@ def build_html(sub, panel, ctrls):
         parts.append('<p style="font-size:12px;"><b>%d of %d</b> criteria passed.</p>' % (npass, ntot))
 
     if grade:
-        bg = {"Good": "#E9F4EC", "Fairly Good": "#EEF6E9", "Moderate": "#FBF4E4",
-              "Fairly Poor": "#FCF0E8", "Poor": "#FBEDEB"}.get(grade, "#EEF1EE")
-        fg = {"Good": _PASS, "Fairly Good": "#467A3D", "Moderate": "#9A6700",
-              "Fairly Poor": "#A44E27", "Poor": _FAIL}.get(grade, _INK)
-        parts.append('<div style="margin-top:6px; padding:8px 10px; background-color:%s;'
-                     ' color:%s; font-size:14px; font-weight:bold;">Condition: %s</div>'
-                     % (bg, fg, _esc(grade)))
+        parts.append('<table cellspacing="0" width="100%%" style="margin-top:10px;">%s</table>' %
+                     _row([_td("Overall condition", bold=True, bg=_HEAD, width="35%"),
+                           _td(_esc(grade), bold=True, bg=_HEAD)]))
 
     labels = panel.get("labels")
     if labels:
         rows = "".join(_row([_td("<b>%s</b>" % g, width="90"), _td(_esc(t))]) for g, t in labels)
-        parts.append('<p style="font-size:11px; color:%s; margin-top:8px;">Grade thresholds</p>' % _MUTE)
+        parts.append('<p style="font-size:10px; color:%s; margin:10px 0 3px 0;">Grade thresholds</p>' % _MUTE)
         parts.append('<table cellspacing="0" width="100%%">%s</table>' % rows)
 
     parts.append("</div>")

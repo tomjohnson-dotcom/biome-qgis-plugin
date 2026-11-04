@@ -8,7 +8,8 @@ sharp while the imported drawing supplies the export dimensions.
 import copy
 import os
 
-from qgis.PyQt.QtCore import Qt, QRectF, QSize, QLineF, QPointF, QSettings
+from qgis.PyQt.QtCore import (Qt, QRectF, QSize, QLineF, QPointF, QSettings,
+                              QEvent)
 from qgis.PyQt.QtGui import (QColor, QFont, QIcon, QImage, QPainter, QPixmap,
                             QPen, QBrush, QPolygonF, QKeySequence, QPainterPath)
 from qgis.PyQt.QtWidgets import (
@@ -314,9 +315,20 @@ class _ResizableSvgItem(QGraphicsSvgItem):
         return [QRectF(p.x() - s / 2, p.y() - s / 2, s, s)
                 for p in self._corners()]
 
+    def boundingRect(self):
+        pad = self._handle_size()
+        return super().boundingRect().adjusted(-pad, -pad, pad, pad)
+
+    def shape(self):
+        hit_shape = super().shape()
+        for rect in self._handle_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
+
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4 / max(self.scale(), 0.05)))
             painter.setBrush(QBrush(QColor(_HANDLE_FILL)))
             for rect in self._handle_rects():
@@ -330,17 +342,16 @@ class _ResizableSvgItem(QGraphicsSvgItem):
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
-        if self.isSelected():
-            for i, rect in enumerate(self._handle_rects()):
-                if rect.contains(event.pos()):
-                    self._resize_corner = i
-                    opposite = self._corners()[(i + 2) % 4]
-                    self._anchor_scene = self.mapToScene(opposite)
-                    self._start_distance = max(
-                        QLineF(self._anchor_scene, event.scenePos()).length(), 1.0)
-                    self._start_scale = self.scale()
-                    event.accept()
-                    return
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.contains(event.pos()):
+                self._resize_corner = i
+                opposite = self._corners()[(i + 2) % 4]
+                self._anchor_scene = self.mapToScene(opposite)
+                self._start_distance = max(
+                    QLineF(self._anchor_scene, event.scenePos()).length(), 1.0)
+                self._start_scale = self.scale()
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -400,6 +411,15 @@ class _ResizableTextItem(QGraphicsTextItem):
         pad = self._handle_size()
         return self._base_rect().adjusted(-pad, -pad, pad, pad)
 
+    def shape(self):
+        hit_shape = super().shape()
+        if self._box:
+            hit_shape.addRect(self._base_rect())
+        for rect in self._handle_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
+
     def paint(self, painter, option, widget=None):
         if self._box:
             painter.setPen(QPen(QColor("#617069"), 1.0 / max(self.scale(), .05)))
@@ -408,23 +428,22 @@ class _ResizableTextItem(QGraphicsTextItem):
             painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(self._base_rect(), 5, 5)
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4 / max(self.scale(), .05)))
             painter.setBrush(QBrush(QColor(_HANDLE_FILL)))
             for rect in self._handle_rects():
                 painter.drawRect(rect)
 
     def mousePressEvent(self, event):
-        if self.isSelected():
-            for i, rect in enumerate(self._handle_rects()):
-                if rect.contains(event.pos()):
-                    self._resize_corner = i
-                    opposite = self._corners()[(i+2) % 4]
-                    self._anchor_scene = self.mapToScene(opposite)
-                    self._start_distance = max(QLineF(self._anchor_scene,
-                                                       event.scenePos()).length(), 1)
-                    self._start_scale = self.scale()
-                    event.accept(); return
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.contains(event.pos()):
+                self._resize_corner = i
+                opposite = self._corners()[(i+2) % 4]
+                self._anchor_scene = self.mapToScene(opposite)
+                self._start_distance = max(QLineF(self._anchor_scene,
+                                                   event.scenePos()).length(), 1)
+                self._start_scale = self.scale()
+                event.accept(); return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -460,6 +479,20 @@ class _ArrowItem(QGraphicsLineItem):
     def boundingRect(self):
         return super().boundingRect().adjusted(-14, -14, 14, 14)
 
+    def _endpoint_rects(self):
+        return [QRectF(point.x() - 7, point.y() - 7, 14, 14)
+                for point in (self.line().p1(), self.line().p2())]
+
+    def shape(self):
+        # QGraphicsLineItem normally only accepts clicks close to the line.
+        # Include the complete painted endpoint handles so every visible part
+        # of either green box can be grabbed, including its outer corners.
+        hit_shape = super().shape()
+        for rect in self._endpoint_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
+
     def paint(self, painter, option, widget=None):
         line = self.line()
         painter.setPen(self.pen())
@@ -474,15 +507,15 @@ class _ArrowItem(QGraphicsLineItem):
                             math.cos(angle + math.pi-math.pi/3)*size)
             painter.setBrush(QBrush(self.pen().color()))
             painter.drawPolygon(QPolygonF([p, a, b]))
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4))
             painter.setBrush(QBrush(QColor(_HANDLE_FILL)))
-            for pt in (line.p1(), line.p2()):
-                painter.drawRect(QRectF(pt.x()-7, pt.y()-7, 14, 14))
+            for rect in self._endpoint_rects():
+                painter.drawRect(rect)
 
     def mousePressEvent(self, event):
-        for i, pt in enumerate((self.line().p1(), self.line().p2())):
-            if QLineF(pt, event.pos()).length() <= 15:
+        for i, rect in enumerate(self._endpoint_rects()):
+            if rect.contains(event.pos()):
                 self._endpoint = i
                 event.accept(); return
         super().mousePressEvent(event)
@@ -519,8 +552,19 @@ class _BoxShapeItem(QGraphicsRectItem):
         r = self.rect()
         return (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft())
 
+    def _handle_rects(self):
+        return [QRectF(point.x() - 7, point.y() - 7, 14, 14)
+                for point in self._corners()]
+
     def boundingRect(self):
         return super().boundingRect().adjusted(-11, -11, 11, 11)
+
+    def shape(self):
+        hit_shape = super().shape()
+        for rect in self._handle_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
 
     def paint(self, painter, option, widget=None):
         painter.setPen(self.pen()); painter.setBrush(self.brush())
@@ -528,15 +572,15 @@ class _BoxShapeItem(QGraphicsRectItem):
             painter.drawEllipse(self.rect())
         else:
             painter.drawRect(self.rect())
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4))
             painter.setBrush(QBrush(QColor(_HANDLE_FILL)))
-            for p in self._corners():
-                painter.drawRect(QRectF(p.x()-7, p.y()-7, 14, 14))
+            for rect in self._handle_rects():
+                painter.drawRect(rect)
 
     def mousePressEvent(self, event):
-        for i, point in enumerate(self._corners()):
-            if QLineF(point, event.pos()).length() <= 16:
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.contains(event.pos()):
                 self._resize_corner = i
                 self._anchor = self._corners()[(i + 2) % 4]
                 event.accept(); return
@@ -557,7 +601,12 @@ class _BoxShapeItem(QGraphicsRectItem):
 class _FreehandItem(QGraphicsPathItem):
     """Selectable freehand ink stroke created directly on the canvas."""
     def __init__(self, path=None, color="#B3372F", width=5.0):
-        super().__init__(path or QPainterPath())
+        # A QPainterPath containing only moveTo(start) reports itself as empty
+        # and is falsey. Using ``path or QPainterPath()`` therefore discarded
+        # the mouse-press position and replaced it with a path at (0, 0); the
+        # first mouse move then drew a diagonal from the image edge. Only make
+        # a new path when the caller genuinely supplied None.
+        super().__init__(path if path is not None else QPainterPath())
         self._symbol_name = "Pen stroke"
         self.setPen(QPen(QColor(color), width, Qt.PenStyle.SolidLine,
                          Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
@@ -566,7 +615,7 @@ class _FreehandItem(QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.0, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.path().boundingRect().adjusted(-5, -5, 5, 5))
@@ -589,21 +638,34 @@ class _CircleItem(QGraphicsEllipseItem):
         r = self.rect()
         return (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft())
 
+    def _handle_rects(self):
+        return [QRectF(point.x() - 7, point.y() - 7, 14, 14)
+                for point in self._corners()]
+
     def boundingRect(self):
         return super().boundingRect().adjusted(-10, -10, 10, 10)
+
+    def shape(self):
+        # The inherited ellipse hit shape excludes its transparent centre and
+        # the corner handles. Add the painted handles so they receive clicks.
+        hit_shape = super().shape()
+        for rect in self._handle_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
 
     def paint(self, painter, option, widget=None):
         painter.setPen(self.pen()); painter.setBrush(self.brush())
         painter.drawEllipse(self.rect())
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4))
             painter.setBrush(QBrush(QColor(_HANDLE_FILL)))
-            for p in self._corners():
-                painter.drawRect(QRectF(p.x()-7, p.y()-7, 14, 14))
+            for rect in self._handle_rects():
+                painter.drawRect(rect)
 
     def mousePressEvent(self, event):
-        for i, p in enumerate(self._corners()):
-            if QLineF(p, event.pos()).length() <= 16:
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.contains(event.pos()):
                 self._resize_corner = i
                 self._anchor = self._corners()[(i+2) % 4]
                 event.accept(); return
@@ -647,8 +709,22 @@ class _LegendItem(QGraphicsItem):
         r = self._rect()
         return (r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft())
 
+    def _handle_rects(self):
+        size = 14 / max(abs(self.scale()), .05)
+        return [QRectF(point.x() - size / 2, point.y() - size / 2,
+                       size, size) for point in self._corners()]
+
     def boundingRect(self):
-        return self._rect().adjusted(-8, -8, 8, 8)
+        pad = 14 / max(abs(self.scale()), .05)
+        return self._rect().adjusted(-pad, -pad, pad, pad)
+
+    def shape(self):
+        hit_shape = QPainterPath()
+        hit_shape.addRect(self._rect())
+        for rect in self._handle_rects():
+            hit_shape.addRect(rect)
+        hit_shape.setFillRule(Qt.FillRule.WindingFill)
+        return hit_shape
 
     def paint(self, painter, option, widget=None):
         r = self._rect()
@@ -673,16 +749,15 @@ class _LegendItem(QGraphicsItem):
             painter.drawText(QRectF(49, y, 205, 36),
                              Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                              f"{name}  × {count}")
-        if self.isSelected():
+        if self.isSelected() or getattr(self, "_hover_preview", False):
             painter.setPen(QPen(QColor(_HANDLE_BORDER), 1.4 / max(self.scale(), .05)))
             painter.setBrush(QColor(_HANDLE_FILL))
-            for p in self._corners():
-                s = 14 / max(self.scale(), .05)
-                painter.drawRect(QRectF(p.x()-s/2, p.y()-s/2, s, s))
+            for rect in self._handle_rects():
+                painter.drawRect(rect)
 
     def mousePressEvent(self, event):
-        for i, p in enumerate(self._corners()):
-            if QLineF(p, event.pos()).length() <= 17 / max(self.scale(), .05):
+        for i, rect in enumerate(self._handle_rects()):
+            if rect.contains(event.pos()):
                 self._resize_corner = i
                 opposite = self._corners()[(i+2) % 4]
                 self._anchor_scene = self.mapToScene(opposite)
@@ -724,6 +799,8 @@ class _Canvas(QGraphicsView):
         self._freehand_factory = freehand_factory
         self._pen_mode = False
         self._ink_item = None
+        self._ink_start = None
+        self._hover_item = None
         self._space_down = False
         self._panning = False
         self._pan_pos = None
@@ -731,6 +808,8 @@ class _Canvas(QGraphicsView):
                             QPainter.RenderHint.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         self.setBackgroundBrush(QColor("#DDE2DE"))
         self.setFrameShape(QFrame.Shape.NoFrame)
         # Keep the detail beneath the cursor stationary while wheel-zooming.
@@ -743,9 +822,31 @@ class _Canvas(QGraphicsView):
 
     def set_pen_mode(self, enabled):
         self._pen_mode = bool(enabled)
+        self.setDragMode(
+            QGraphicsView.DragMode.NoDrag if enabled
+            else QGraphicsView.DragMode.RubberBandDrag)
         if not self._panning:
             self.viewport().setCursor(
                 Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
+
+    def _set_hover_item(self, item):
+        if item is self._hover_item:
+            return
+        previous = self._hover_item
+        self._hover_item = item
+        if previous is not None:
+            previous._hover_preview = False
+            previous.update()
+        if item is not None:
+            item._hover_preview = True
+            item.update()
+
+    def _update_hover(self, scene_point):
+        item = self.scene().itemAt(scene_point, self.transform())
+        while item is not None and not bool(
+                item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+            item = item.parentItem()
+        self._set_hover_item(item)
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
@@ -765,8 +866,10 @@ class _Canvas(QGraphicsView):
             if self._begin_change:
                 self._begin_change()
             start = self.mapToScene(event.position().toPoint())
-            path = QPainterPath(start)
-            self._ink_item = self._freehand_factory(path)
+            # QGraphicsPathItem discards a path containing only moveTo(start),
+            # so retain the press point separately until the first movement.
+            self._ink_start = QPointF(start)
+            self._ink_item = self._freehand_factory(QPainterPath())
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton and self._begin_change:
@@ -775,6 +878,7 @@ class _Canvas(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         if self._panning and self._pan_pos is not None:
+            self._set_hover_item(None)
             current = event.position().toPoint()
             delta = current - self._pan_pos
             self._pan_pos = current
@@ -785,12 +889,21 @@ class _Canvas(QGraphicsView):
             event.accept()
             return
         if self._ink_item is not None:
+            self._set_hover_item(None)
             path = self._ink_item.path()
-            path.lineTo(self.mapToScene(event.position().toPoint()))
+            current = self.mapToScene(event.position().toPoint())
+            if path.elementCount() == 0 and self._ink_start is not None:
+                path.moveTo(self._ink_start)
+            path.lineTo(current)
             self._ink_item.setPath(path)
             event.accept()
             return
+        self._update_hover(self.mapToScene(event.position().toPoint()))
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_hover_item(None)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if self._panning:
@@ -804,13 +917,15 @@ class _Canvas(QGraphicsView):
             return
         if self._ink_item is not None:
             if self._ink_item.path().elementCount() < 2:
-                path = self._ink_item.path()
-                start = path.elementAt(0)
-                path.lineTo(start.x + .5, start.y + .5)
+                start = self._ink_start or QPointF()
+                path = QPainterPath()
+                path.moveTo(start)
+                path.lineTo(start.x() + .5, start.y() + .5)
                 self._ink_item.setPath(path)
             self.scene().clearSelection()
             self._ink_item.setSelected(True)
             self._ink_item = None
+            self._ink_start = None
             if self._end_change:
                 self._end_change()
             event.accept()
@@ -984,6 +1099,17 @@ class PlanAnnotatorDialog(QDialog):
             btn = QPushButton(text)
             if text == "Pen":
                 btn.setCheckable(True)
+                btn.setToolTip(
+                    "Click to turn the pen on. It stays on for canvas strokes "
+                    "and turns off when you click another control.")
+                btn.setStyleSheet(
+                    "QPushButton { background:#FFFFFF; color:#243B31;"
+                    " border:1px solid #BFCBC3; border-radius:6px; }"
+                    "QPushButton:hover { background:#E8F0EA; border-color:#86A492; }"
+                    "QPushButton:checked { background:#1F7A4D; color:#FFFFFF;"
+                    " border:2px solid #145C39; font-weight:700; }"
+                    "QPushButton:checked:hover { background:#17643E; }"
+                )
                 self._pen_btn = btn
             btn.clicked.connect(callback)
             markup.addWidget(btn, index // 2, index % 2)
@@ -1103,6 +1229,54 @@ class PlanAnnotatorDialog(QDialog):
         self._set_document_enabled(False)
         self._selection_changed()
         self._update_history_buttons()
+        # Watch clicks throughout the annotator (and its modal child dialogs)
+        # so pen mode cannot remain armed after the user chooses another action.
+        QApplication.instance().installEventFilter(self)
+        self._pen_event_filter_installed = True
+
+    def eventFilter(self, watched, event):
+        if (getattr(self, "_pen_btn", None) is not None
+                and self._pen_btn.isChecked()
+                and event.type() == QEvent.Type.MouseButtonPress):
+            # The pen button must receive its own click so it can toggle off.
+            on_pen_button = (watched is self._pen_btn)
+            try:
+                on_pen_button = on_pen_button or self._pen_btn.isAncestorOf(watched)
+            except Exception:
+                pass
+
+            # A click in the graphics viewport is the only other click that
+            # deliberately keeps pen mode armed for another stroke.
+            viewport = self._view.viewport()
+            on_canvas = (watched is viewport)
+            try:
+                on_canvas = on_canvas or viewport.isAncestorOf(watched)
+            except Exception:
+                pass
+            # QGraphicsView may route the same physical press through an
+            # internal viewport/window object rather than the viewport QWidget
+            # itself. Classifying by receiver alone can therefore switch the
+            # pen off immediately and leave RubberBandDrag to draw a selection
+            # box. The screen position is the authoritative canvas test.
+            try:
+                global_point = event.globalPosition().toPoint()
+                local_point = viewport.mapFromGlobal(global_point)
+                on_canvas = on_canvas or viewport.rect().contains(local_point)
+            except Exception:
+                pass
+
+            if not on_pen_button and not on_canvas:
+                self._set_pen_active(False)
+        return super().eventFilter(watched, event)
+
+    def closeEvent(self, event):
+        if getattr(self, "_pen_event_filter_installed", False):
+            try:
+                QApplication.instance().removeEventFilter(self)
+            except Exception:
+                pass
+            self._pen_event_filter_installed = False
+        super().closeEvent(event)
 
     def _history_id(self, item):
         if not hasattr(item, "_history_id"):
@@ -1511,8 +1685,16 @@ class PlanAnnotatorDialog(QDialog):
             self._pen_btn.setChecked(False)
             self._pen_btn.blockSignals(False)
             checked = False
-        self._view.set_pen_mode(checked)
-        self._pen_btn.setText("Stop pen" if checked else "Pen")
+        self._set_pen_active(checked)
+
+    def _set_pen_active(self, active):
+        """Synchronise the checked button, cursor and explicit active label."""
+        active = bool(active)
+        self._pen_btn.blockSignals(True)
+        self._pen_btn.setChecked(active)
+        self._pen_btn.blockSignals(False)
+        self._view.set_pen_mode(active)
+        self._pen_btn.setText("PEN ON" if active else "Pen")
 
     def _create_freehand(self, path):
         item = _FreehandItem(

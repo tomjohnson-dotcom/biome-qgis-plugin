@@ -431,7 +431,25 @@ class ManageScreenMixin:
             # Already overridden — use the saved original if available
             orig = _ORIG_RENDERERS.get(lid)
             if orig is None:
-                orig = current  # fallback (shouldn't normally happen)
+                # Project reopen: the rule renderer and override properties
+                # persist, but the in-memory original cache does not. Rebuild
+                # the canonical habitat renderer instead of nesting another
+                # override renderer inside the existing one.
+                try:
+                    from .layer_manager import LAYER_NAMES, LayerManager
+                    bkey = next((k for k, n in LAYER_NAMES.items()
+                                 if n == layer.name()), None)
+                    geom_str = ("Polygon" if is_polygon
+                                else "LineString" if is_line else "Point")
+                    rebuilt, _opacity = LayerManager.build_builtin_style(
+                        bkey, geom_str) if bkey is not None else (None, 1.0)
+                    orig = rebuilt
+                    if orig is not None:
+                        _ORIG_RENDERERS[lid] = orig.clone()
+                except Exception:
+                    orig = None
+                if orig is None:
+                    orig = current  # final fallback for non-habitat layers
 
         def _symbol_for_feature(feature_id):
             """Get the symbol the original renderer would use for this feature."""
@@ -502,10 +520,21 @@ class ManageScreenMixin:
             feat = layer.getFeature(ofid)
             ftype_label = ""
             if feat.isValid():
-                try:
-                    ftype_label = feat["ftype"] or feat["label"] or feat["sub_type"] or ""
-                except Exception:
-                    pass
+                # Use the actual display/type field for this layer. Area
+                # habitats do not have ftype/sub_type fields; the old chained
+                # lookup raised on its first missing field and left the custom
+                # rule unlabelled, even though the feature still correctly
+                # carried e.g. Vegetated garden.
+                for field_name in (
+                        "ftype", "label", "Baseline Habitat Type",
+                        "Proposed Habitat Type", "sub_habitat_type"):
+                    idx = feat.fieldNameIndex(field_name)
+                    if idx < 0:
+                        continue
+                    value = feat[idx]
+                    if value is not None and str(value).strip():
+                        ftype_label = str(value).strip()
+                        break
             # Try to get the actual symbol for this feature to preserve styling
             orig_sym = _symbol_for_feature(ofid)
             if orig_sym:
@@ -532,18 +561,38 @@ class ManageScreenMixin:
             rule.setLabel(ftype_label)  # shows in legend
             root.appendChild(rule)
 
-        # ── ELSE rule: embed the *entire* original renderer converted to rule-based
-        # so non-overridden features keep all their original per-category colours.
-        # This prevents every other feature from falling back to a single default symbol.
+        # Append the original renderer's rules directly beneath the layer so
+        # non-overridden features keep their normal category colours. Do not
+        # wrap them in an ELSE group: even an empty group label remains a
+        # visible blank/"original style" row in QGIS legends.
         try:
             else_renderer = QgsRuleBasedRenderer.convertFromRenderer(orig)
             if else_renderer:
-                else_group = QgsRuleBasedRenderer.Rule(None)
-                else_group.setIsElse(True)
-                else_group.setLabel("(original style)")
+                excluded_ids = ",".join(str(int(fid)) for fid in overrides)
+
+                def _exclude_overrides(rule):
+                    children = list(rule.children())
+                    if children:
+                        for nested in children:
+                            _exclude_overrides(nested)
+                        return
+                    # ELSE retains its native behaviour: because the custom
+                    # fid rule is a root sibling, it will not claim a feature
+                    # that already matched the override. Ordinary category
+                    # rules need an explicit exclusion to avoid drawing both.
+                    try:
+                        if rule.isElse():
+                            return
+                    except Exception:
+                        pass
+                    base = rule.filterExpression() or "TRUE"
+                    rule.setFilterExpression(
+                        f"({base}) AND $id NOT IN ({excluded_ids})")
+
                 for child in else_renderer.rootRule().children():
-                    else_group.appendChild(child.clone())
-                root.appendChild(else_group)
+                    clone = child.clone()
+                    _exclude_overrides(clone)
+                    root.appendChild(clone)
             else:
                 raise RuntimeError("convertFromRenderer returned None")
         except Exception:
@@ -969,7 +1018,8 @@ class ManageScreenMixin:
             """Return a small transparent preview of this feature's map symbol."""
             if layer.name() in ("Redline Boundary", "Blue Line Boundary"):
                 return None
-            cache_key = (layer.id(),
+            override = self._get_colour_override(layer, feat.id())
+            base_cache_key = (layer.id(),
                          str(feat["sub_habitat_type"] or "")
                          if feat.fieldNameIndex("sub_habitat_type") >= 0 else "",
                          str(feat["Baseline Habitat Type"] or "")
@@ -980,10 +1030,76 @@ class ManageScreenMixin:
                          if feat.fieldNameIndex("condition") >= 0 else "",
                          str(feat["retention"] or "")
                          if feat.fieldNameIndex("retention") >= 0 else "")
+            # Default symbols can be shared by matching habitat rows. A colour
+            # override is feature-specific and must never populate that shared
+            # cache, otherwise every row of the same habitat inherits its
+            # swatch (or its failed/blank preview).
+            cache_key = (("override", layer.id(), int(feat.id()), override.name())
+                         if override is not None else ("default",) + base_cache_key)
             if cache_key in symbol_texture_cache:
                 return symbol_texture_cache[cache_key]
+
+            # Show the selected override colour directly. This is deliberately
+            # independent of RuleRenderer preview resolution: nested ELSE rules
+            # can return no symbol outside a full map-render pass, which was the
+            # source of the white swatch seen after applying an override.
+            if override is not None:
+                from qgis.PyQt.QtGui import QPixmap
+                from qgis.core import QgsWkbTypes
+                pixmap = QPixmap(52, 34)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                geom_type = QgsWkbTypes.geometryType(layer.wkbType())
+                if geom_type == QgsWkbTypes.GeometryType.PolygonGeometry:
+                    painter.setPen(QPen(override.darker(140), 1.2))
+                    painter.setBrush(override)
+                    painter.drawRoundedRect(QRectF(2, 2, 48, 30), 5, 5)
+                elif geom_type == QgsWkbTypes.GeometryType.LineGeometry:
+                    painter.setPen(QPen(override, 5.0, Qt.PenStyle.SolidLine,
+                                        Qt.PenCapStyle.RoundCap))
+                    painter.drawLine(3, 17, 49, 17)
+                else:
+                    painter.setPen(QPen(override.darker(140), 1.2))
+                    painter.setBrush(override)
+                    painter.drawEllipse(QRectF(13, 4, 26, 26))
+                painter.end()
+                symbol_texture_cache[cache_key] = pixmap
+                return pixmap
+
             pixmap = None
             renderer = layer.renderer()
+            if override is None:
+                # A per-feature override replaces the live renderer with exact
+                # fid rules plus a nested ELSE group. QGIS can draw that group
+                # on the map, but symbolForFeature() may return None when it is
+                # queried only for a preview. Resolve unchanged rows against
+                # the saved pre-override renderer instead.
+                renderer = _ORIG_RENDERERS.get(layer.id()) or renderer
+
+                # After reopening a project the in-memory original-renderer
+                # cache is naturally empty, while the override properties and
+                # rule renderer persist. Reconstruct the bundled renderer for
+                # a reliable default swatch in that case.
+                if (layer.id() not in _ORIG_RENDERERS
+                        and any(p.startswith("biome_colour_")
+                                for p in layer.customProperties().keys())):
+                    try:
+                        from .layer_manager import LAYER_NAMES, LayerManager
+                        bkey = next((k for k, n in LAYER_NAMES.items()
+                                     if n == layer.name()), None)
+                        if bkey is not None:
+                            geom_type = _feature_geometry_kind(layer)
+                            geom_str = {"polygon": "Polygon",
+                                        "line": "LineString",
+                                        "point": "Point"}.get(geom_type)
+                            if geom_str:
+                                rebuilt, _opacity = LayerManager.build_builtin_style(
+                                    bkey, geom_str)
+                                if rebuilt is not None:
+                                    renderer = rebuilt
+                    except Exception:
+                        pass
             if renderer is not None:
                 try:
                     from qgis.core import (QgsRenderContext, QgsExpressionContext,
@@ -3677,6 +3793,20 @@ class ManageScreenMixin:
             layer = self.layer_manager.get_layer(key)
             if layer is None or not layer.isValid():
                 continue
+            # Heal saved per-feature override renderers created by earlier
+            # versions (blank custom label + visible "original style" group).
+            # One call rebuilds all overrides collected from layer properties.
+            override_props = [
+                p for p in layer.customProperties().keys()
+                if p.startswith("biome_colour_")
+                and p[len("biome_colour_"):].isdigit()
+            ]
+            if override_props:
+                prop = override_props[0]
+                stored = QColor(layer.customProperty(prop))
+                if stored.isValid():
+                    self._apply_colour_override(
+                        layer, int(prop[len("biome_colour_"):]), stored)
             feats = list(layer.getFeatures())
             if not feats:
                 continue
