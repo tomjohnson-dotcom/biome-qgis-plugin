@@ -2639,7 +2639,10 @@ class DeskStudyMixin:
         width_m = ((max(longitudes) - min(longitudes)) * 111320.0
                    * max(0.2, math.cos(math.radians(lat))))
         height_m = (max(latitudes) - min(latitudes)) * 110540.0
-        view_range = max(250.0, width_m, height_m) * 1.8
+        # Frame the boundary prominently while retaining a modest context
+        # margin. The former 250 m floor and 1.8 multiplier left smaller sites
+        # occupying only a small part of the Google Earth Pro canvas.
+        view_range = max(180.0, width_m, height_m) * 1.5
 
         placemarks = "".join(
             "<Placemark><name>Site boundary</name><styleUrl>#redline</styleUrl>"
@@ -5444,6 +5447,18 @@ class DeskStudyMixin:
         # water-type selection. Older layers have no signature and layers
         # created before a settings change may still contain disabled rivers.
         existing = QgsProject.instance().mapLayersByName(_SW_LAYER_NAME)
+        if existing:
+            # A failed legacy save can leave a valid-looking GeoPackage or
+            # memory layer with zero polygons. It is not a cached result: if
+            # retained here the button reports 0 highlighted and returns early
+            # forever instead of fetching the outlines again.
+            empty = [layer for layer in existing
+                     if not layer.isValid() or layer.featureCount() == 0]
+            if empty:
+                QgsProject.instance().removeMapLayers(
+                    [layer.id() for layer in empty])
+                existing = QgsProject.instance().mapLayersByName(
+                    _SW_LAYER_NAME)
         if existing:
             from .config import get_standing_water_types
             expected_types = "|".join(sorted(get_standing_water_types()))

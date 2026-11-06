@@ -4926,6 +4926,7 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
     """
     import json
     import math
+    import os
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from urllib.request import urlopen, Request
     from urllib.parse import urlencode
@@ -4933,6 +4934,7 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
         QgsProject, QgsVectorLayer, QgsFeature, QgsGeometry,
         QgsPointXY, QgsSingleSymbolRenderer, QgsSymbol,
         QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+        QgsVectorFileWriter,
     )
     from qgis.PyQt.QtGui import QColor
     from .config import get_standing_water_types
@@ -5355,14 +5357,51 @@ def load_standing_water_layer(easting, northing, redline_geom=None, api_key="",
     dp.addFeatures(qfeats)
     lyr.updateExtents()
 
-    _style_standing_water_layer(lyr)
-
-    lyr.setCustomProperty("skipMemoryLayersCheck", 1)
-    lyr.setCustomProperty("biome_scratch", "1")
-    lyr.setCustomProperty("biome_gpkg_table", _SW_GPKG_TABLE)
-    lyr.setCustomProperty(
-        "biome_standing_water_types", "|".join(sorted(enabled_types)))
     project = QgsProject.instance()
+    type_signature = "|".join(sorted(enabled_types))
+
+    # A saved project already has a stable GeoPackage destination. Write the
+    # fetched outlines there immediately instead of relying on the generic
+    # memory-layer migration during the next project save. This avoids an
+    # empty memory placeholder being embedded in the QGZ and subsequently
+    # overwriting the real outline table on a later save/reload cycle.
+    project_file = project.fileName()
+    persisted = False
+    if project_file:
+        project_dir = os.path.dirname(project_file)
+        project_name = os.path.splitext(os.path.basename(project_file))[0]
+        gpkg_path = os.path.join(
+            project_dir, f"{project_name}_bng_data.gpkg")
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "GPKG"
+        options.layerName = _SW_GPKG_TABLE
+        options.fileEncoding = "UTF-8"
+        options.actionOnExistingFile = (
+            QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
+            if os.path.exists(gpkg_path)
+            else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile)
+        try:
+            error, _message, _new_file, _new_layer = (
+                QgsVectorFileWriter.writeAsVectorFormatV3(
+                    lyr, gpkg_path, project.transformContext(), options))
+            if error == QgsVectorFileWriter.WriterError.NoError:
+                saved = QgsVectorLayer(
+                    f"{gpkg_path}|layername={_SW_GPKG_TABLE}",
+                    _SW_LAYER_NAME, "ogr")
+                if saved.isValid() and saved.featureCount() == len(qfeats):
+                    lyr = saved
+                    persisted = True
+        except Exception:
+            persisted = False
+
+    _style_standing_water_layer(lyr)
+    lyr.setCustomProperty("biome_gpkg_table", _SW_GPKG_TABLE)
+    lyr.setCustomProperty("biome_standing_water_types", type_signature)
+    if not persisted:
+        # Unsaved projects still use the established scratch migration path.
+        lyr.setCustomProperty("skipMemoryLayersCheck", 1)
+        lyr.setCustomProperty("biome_scratch", "1")
+
     project.addMapLayer(lyr, False)
     root = project.layerTreeRoot()
     from .pond_mapper import pond_group, order_pond_group_layers
@@ -5431,6 +5470,19 @@ def recover_persisted_standing_water_layer(gpkg_path):
 
     existing = organise_standing_water_layers()
     if existing is not None and existing.isValid() and existing.featureCount() > 0:
+        # QGIS can restore the saved GeoPackage features while dropping or
+        # retaining a stale memory-layer renderer. The controls then correctly
+        # report that pond outlines are loaded, but the polygons draw with no
+        # usable symbol. Always restore the canonical outline style on reopen.
+        try:
+            existing.dataProvider().reloadData()
+            existing.reload()
+        except Exception:
+            pass
+        existing.updateExtents()
+        _style_standing_water_layer(existing)
+        existing.triggerRepaint()
+        order_pond_group_layers(QgsProject.instance().layerTreeRoot())
         return existing
     if not gpkg_path or not os.path.isfile(gpkg_path):
         return existing
@@ -5453,6 +5505,12 @@ def recover_persisted_standing_water_layer(gpkg_path):
     layer.removeCustomProperty("biome_scratch")
     layer.removeCustomProperty("skipMemoryLayersCheck")
     layer.setCustomProperty("biome_gpkg_table", _SW_GPKG_TABLE)
+    try:
+        layer.dataProvider().reloadData()
+        layer.reload()
+    except Exception:
+        pass
+    layer.updateExtents()
     _style_standing_water_layer(layer)
     organise_standing_water_layers()
     order_pond_group_layers(project.layerTreeRoot())

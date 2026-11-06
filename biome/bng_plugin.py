@@ -718,6 +718,35 @@ class BNGPlugin:
         failed = []
         for layer, table in scratch_layers:
             try:
+                # Never replace a successfully saved outline table with an
+                # empty memory placeholder restored from an older QGZ. Repoint
+                # the placeholder to the existing data instead. This is
+                # intentionally specific to downloaded pond outlines: an empty
+                # outline layer is never a meaningful user-authored deletion.
+                if (str(table) == "known_water_outlines"
+                        and layer.featureCount() == 0
+                        and os.path.exists(gpkg)):
+                    saved_uri = f"{gpkg}|layername={table}"
+                    saved_layer = QgsVectorLayer(
+                        saved_uri, layer.name(), "ogr")
+                    if saved_layer.isValid() and saved_layer.featureCount() > 0:
+                        layer.setDataSource(
+                            saved_uri, layer.name(), "ogr",
+                            QgsDataProvider.ProviderOptions())
+                        if layer.isValid() and layer.featureCount() > 0:
+                            layer.removeCustomProperty("biome_scratch")
+                            layer.removeCustomProperty("skipMemoryLayersCheck")
+                            layer.setCustomProperty("biome_gpkg_table", table)
+                            try:
+                                from .designated_sites import (
+                                    _style_standing_water_layer)
+                                layer.updateExtents()
+                                _style_standing_water_layer(layer)
+                            except Exception:
+                                pass
+                            layer.triggerRepaint()
+                            migrated += 1
+                            continue
                 # A subset filter (measure-sketch visibility uses '$id != N')
                 # would make the writer skip the hidden features — clear it for
                 # the write and re-apply it (fid-remapped) afterwards.
@@ -784,6 +813,18 @@ class BNGPlugin:
                         pass
                 layer.removeCustomProperty("biome_scratch")
                 layer.removeCustomProperty("skipMemoryLayersCheck")
+                layer.setCustomProperty("biome_gpkg_table", table)
+                # Repointing a memory layer to OGR can reset its renderer even
+                # though its saved features remain intact. Restore the mapped
+                # pond-outline style immediately so the layer does not vanish
+                # visually after the first project save.
+                if str(table) == "known_water_outlines":
+                    try:
+                        from .designated_sites import _style_standing_water_layer
+                        layer.updateExtents()
+                        _style_standing_water_layer(layer)
+                    except Exception:
+                        pass
                 layer.triggerRepaint()
                 migrated += 1
             except Exception:
