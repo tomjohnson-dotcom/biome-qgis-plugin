@@ -127,6 +127,12 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         # since the last build, never merely because the tab was opened.
         self._summary_dirty = True
 
+        # Linked baseline/proposed trees share a pair_id.  Geometry edits on
+        # either twin are mirrored to the other layer; this guard prevents the
+        # mirrored geometryChanged signal from bouncing back indefinitely.
+        self._syncing_tree_pair_geometry = False
+        self._tree_geometry_sync_slots = {}
+
         # Deleted feature bin — session-only, does not persist or feed calculations
         # Each entry: {label, layer_name, layer_key, geom_wkt, attrs, deleted_at}
         self._deleted_bin = []
@@ -597,6 +603,7 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
             target_layer = None
         if target_layer is None or not target_layer.isValid():
             return
+        self._connect_layer_signals(target_layer)
         try:
             src_feat = next(src_layer.getFeatures(
                 QgsFeatureRequest().setFilterFid(fid)))
@@ -4619,6 +4626,98 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         _safe_connect(layer.committedAttributeValuesChanges, _refresh_both)
         _safe_connect(layer.committedGeometriesChanges, _refresh_both)
 
+        # A linked tree represents the same physical tree in the baseline and
+        # proposed layers.  Keep the two points coincident when either one is
+        # moved with QGIS's normal edit tools.  Store the closure so reconnecting
+        # project layers does not leave duplicate signal handlers behind.
+        if layer.name() in ("Baseline - Individual Trees",
+                            "Proposed - Individual Trees"):
+            old_sync = self._tree_geometry_sync_slots.get(layer.id())
+            if old_sync is not None:
+                try:
+                    layer.geometryChanged.disconnect(old_sync)
+                except Exception:
+                    pass
+
+            def _sync_tree_pair(fid, geometry, source_layer=layer):
+                self._sync_linked_tree_geometry(source_layer, fid, geometry)
+
+            self._tree_geometry_sync_slots[layer.id()] = _sync_tree_pair
+            layer.geometryChanged.connect(_sync_tree_pair)
+
+    def _sync_linked_tree_geometry(self, source_layer, fid, geometry):
+        """Mirror a moved tree point to its baseline/proposed ``pair_id`` twin.
+
+        Unlinked trees and explicit ``solo:`` records remain independent.  The
+        target is updated through its edit buffer when it is already editable;
+        otherwise its GeoPackage geometry is updated directly, so moving one
+        tree does not unexpectedly open a second layer for editing.
+        """
+        if getattr(self, "_syncing_tree_pair_geometry", False):
+            return
+        if source_layer is None or not source_layer.isValid():
+            return
+
+        source_name = source_layer.name()
+        if source_name == "Baseline - Individual Trees":
+            other_key = "proposed_trees"
+        elif source_name == "Proposed - Individual Trees":
+            other_key = "baseline_trees"
+        else:
+            return
+
+        pair_idx = source_layer.fields().indexOf("pair_id")
+        if pair_idx < 0:
+            return
+        try:
+            source_feature = source_layer.getFeature(fid)
+            pair_id = str(source_feature[pair_idx] or "").strip()
+        except Exception:
+            return
+        if not pair_id or pair_id.startswith("solo:"):
+            return
+
+        other_layer = self.layer_manager.get_layer(other_key)
+        if other_layer is None or not other_layer.isValid():
+            return
+        other_pair_idx = other_layer.fields().indexOf("pair_id")
+        if other_pair_idx < 0:
+            return
+
+        twin = None
+        for candidate in other_layer.getFeatures():
+            if str(candidate[other_pair_idx] or "").strip() == pair_id:
+                twin = candidate
+                break
+        if twin is None:
+            return
+
+        try:
+            target_geometry = QgsGeometry(geometry)
+            if source_layer.crs() != other_layer.crs():
+                transform = QgsCoordinateTransform(
+                    source_layer.crs(), other_layer.crs(),
+                    QgsProject.instance())
+                target_geometry.transform(transform)
+
+            self._syncing_tree_pair_geometry = True
+            if other_layer.isEditable():
+                changed = other_layer.changeGeometry(
+                    twin.id(), target_geometry)
+            else:
+                changed = other_layer.dataProvider().changeGeometryValues(
+                    {twin.id(): target_geometry})
+                if changed:
+                    other_layer.reload()
+            if changed:
+                other_layer.updateExtents()
+                other_layer.triggerRepaint()
+                self.iface.mapCanvas().refresh()
+        except Exception:
+            pass
+        finally:
+            self._syncing_tree_pair_geometry = False
+
     def _open_layers_panel(self):
         # In Biome mode the native Layers panel is deliberately hidden and
         # replaced by the plugin's own layer panel — don't fight that here.
@@ -5199,12 +5298,11 @@ class BNGMainPanel(DeskStudyMixin, SummaryWidgetsMixin, SettingsDialogsMixin, Bu
         prefix = "Proposed " if phase == "proposed" else ""
         title  = prefix + titles[habitat_key]
 
-        # Reverse mapping (draw a proposed area → auto-write a baseline
-        # counterpart, asking the user what was there) was the old paired-area
-        # workflow. Areas now derive retained / lost / enhanced from the spatial
-        # net of independently-mapped baseline vs proposed polygons, so the
-        # reverse flow — and its retention prompt — is disabled.
-        _reverse = False
+        # The paired-mapping switch is phase-agnostic. HabitatFormScreen checks
+        # the live switch again at placement time, so changing it while a form is
+        # open still affects the next feature.
+        _reverse = (phase == "proposed" and getattr(
+            self, "_proposed_mapping", False))
         _t1 = time.time()
         form = _build_no_gc(lambda: HabitatFormScreen(
             iface=self.iface,

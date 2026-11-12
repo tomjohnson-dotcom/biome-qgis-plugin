@@ -3,7 +3,8 @@
 
 
 from qgis.PyQt.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
-    QLineEdit, QScrollArea, QFormLayout, QMessageBox, QComboBox, QSizePolicy)
+    QLineEdit, QScrollArea, QFormLayout, QMessageBox, QComboBox, QSizePolicy,
+    QInputDialog)
 from qgis.PyQt.QtCore import (Qt, QSettings, QSize, QRectF)
 from qgis.PyQt.QtGui import (QPainter, QPainterPath, QColor, QPen)
 from qgis.core import Qgis
@@ -2765,6 +2766,7 @@ class ManageScreenMixin:
 
                 label_val = _f("label")
                 ftype_val = _f("ftype")
+                boundary_name_val = _f("name")
                 sub_val   = _display_sub(feat)
                 cond_val  = _f("condition")
                 ret_val   = _f("retention")
@@ -2800,8 +2802,9 @@ class ManageScreenMixin:
                     if ret_val and not _is_proposed_standalone and not _is_tree_or_hedge:
                         parts.append(ret_val)
                 elif title == "Red Line Boundary":
-                    # Redline — name it clearly
-                    parts.append(f"Red Line Boundary {feature_number}")
+                    # Each redline polygon can carry its own persisted name.
+                    parts.append(boundary_name_val
+                                 or f"Red Line Boundary {feature_number}")
                 elif title == "Blue Line Boundary":
                     # Wider ownership boundary — name it clearly
                     parts.append(f"Blue Line Boundary {feature_number}")
@@ -3744,6 +3747,82 @@ class ManageScreenMixin:
                 )
                 if layer.name() not in ("Redline Boundary", "Blue Line Boundary"):
                     rl.addWidget(edit_btn)
+
+                # Redline names are deliberately feature attributes, not QGIS
+                # layer names: Biome's layer discovery continues to recognise
+                # the canonical Redline Boundary layer while individual site
+                # parcels can be identified meaningfully in Manage Features.
+                if title == "Red Line Boundary":
+                    rename_btn = QPushButton()
+                    rename_btn.setFixedSize(28, 28)
+                    rename_btn.setIcon(_svg_icon("pencil", _action_icon, 16))
+                    rename_btn.setIconSize(QSize(16, 16))
+                    rename_btn.setAttribute(
+                        Qt.WidgetAttribute.WA_AlwaysShowToolTips)
+                    rename_btn.setToolTip("Rename this redline boundary")
+                    self._wire_hint(rename_btn, "Rename redline boundary")
+                    rename_btn.setStyleSheet(_action_qss)
+
+                    def _make_boundary_rename(lyr, feature_id,
+                                              current_name, default_name):
+                        def _rename():
+                            initial = current_name or default_name
+                            new_name, accepted = QInputDialog.getText(
+                                self.iface.mainWindow(),
+                                "Rename redline boundary",
+                                "Boundary name:",
+                                QLineEdit.EchoMode.Normal,
+                                initial)
+                            if not accepted:
+                                return
+                            new_name = new_name.strip()
+                            if not new_name:
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Rename redline boundary",
+                                    "Enter a name for the boundary.")
+                                return
+                            field_idx = lyr.fields().indexOf("name")
+                            if field_idx < 0:
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Rename redline boundary",
+                                    "This redline layer does not contain its "
+                                    "boundary-name field.")
+                                return
+                            was_editable = lyr.isEditable()
+                            if not was_editable and not lyr.startEditing():
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Rename redline boundary",
+                                    "The redline layer could not be opened "
+                                    "for editing.")
+                                return
+                            if not lyr.changeAttributeValue(
+                                    feature_id, field_idx, new_name):
+                                if not was_editable:
+                                    lyr.rollBack()
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Rename redline boundary",
+                                    "The boundary name could not be changed.")
+                                return
+                            if not was_editable and not lyr.commitChanges():
+                                lyr.rollBack()
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Rename redline boundary",
+                                    "The new boundary name could not be saved.")
+                                return
+                            lyr.triggerRepaint()
+                            self.iface.mapCanvas().refresh()
+                            self._schedule_manage_rebuild()
+                        return _rename
+
+                    rename_btn.clicked.connect(_make_boundary_rename(
+                        layer, fid, boundary_name_val,
+                        f"Red Line Boundary {feature_number}"))
+                    rl.addWidget(rename_btn)
 
                 # Duplicate to the paired baseline<->proposed layer. Only shown for
                 # habitat features that don't already have a twin (see

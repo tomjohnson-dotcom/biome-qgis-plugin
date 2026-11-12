@@ -705,6 +705,20 @@ class BNGPlugin:
         for layer in list(proj.mapLayers().values()):
             if not isinstance(layer, QgsVectorLayer):
                 continue
+            # Heal LWS layers created by builds predating project-GeoPackage
+            # persistence. This also protects a currently open old project
+            # even if the user saves it without adding another site first.
+            if layer.providerType() == "memory":
+                legacy_lws_tables = {
+                    "Local Wildlife Sites": "local_wildlife_sites",
+                    "Local Wildlife Sites (Imported)":
+                        "local_wildlife_sites_imported",
+                }
+                legacy_table = legacy_lws_tables.get(layer.name())
+                if legacy_table:
+                    layer.setCustomProperty("skipMemoryLayersCheck", 1)
+                    layer.setCustomProperty("biome_scratch", 1)
+                    layer.setCustomProperty("biome_gpkg_table", legacy_table)
             if str(layer.customProperty("biome_scratch", "")) != "1":
                 continue
             table = layer.customProperty("biome_gpkg_table", "")
@@ -815,14 +829,27 @@ class BNGPlugin:
                 layer.removeCustomProperty("skipMemoryLayersCheck")
                 layer.setCustomProperty("biome_gpkg_table", table)
                 # Repointing a memory layer to OGR can reset its renderer even
-                # though its saved features remain intact. Restore the mapped
-                # pond-outline style immediately so the layer does not vanish
-                # visually after the first project save.
+                # though its saved features remain intact. Restore styles for
+                # mapped layers whose appearance is generated in code.
                 if str(table) == "known_water_outlines":
                     try:
                         from .designated_sites import _style_standing_water_layer
                         layer.updateExtents()
                         _style_standing_water_layer(layer)
+                    except Exception:
+                        pass
+                elif str(table) == "local_wildlife_sites":
+                    try:
+                        from .designated_sites import _style_lws_layer
+                        layer.updateExtents()
+                        _style_lws_layer(layer)
+                    except Exception:
+                        pass
+                elif str(table) == "local_wildlife_sites_imported":
+                    try:
+                        from .designated_sites import apply_imported_lws_style
+                        layer.updateExtents()
+                        apply_imported_lws_style(layer)
                     except Exception:
                         pass
                 layer.triggerRepaint()
@@ -1125,7 +1152,10 @@ class BNGPlugin:
                 # overlays — match those two by provider + name.
                 if layer.providerType() == "wms" and (
                         layer.name().startswith("SSSI IRZ")
-                        or layer.name() == "Property Boundaries (HMLR INSPIRE)"):
+                        or layer.name() in (
+                            "Property Boundaries (HMLR INSPIRE)",
+                            "Property Boundaries (RoS INSPIRE)",
+                        )):
                     doomed.append(lid)
                     continue
                 if not isinstance(layer, QgsVectorLayer):

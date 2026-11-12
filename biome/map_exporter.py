@@ -3251,6 +3251,84 @@ def _pond_map_label_override(map_item, layers):
             "Biome", Qgis.MessageLevel.Warning)
 
 
+def _pond_map_rows():
+    """Return the SWB reference/distance rows used by Pond Map exports.
+
+    Placed marker points are authoritative whenever at least one exists. When
+    no markers have been placed, derive equivalent nearest-first rows from the
+    visible mapped pond outlines. This lets an outline-only map retain a useful
+    pond count and distance list without creating or saving marker features,
+    and prevents outlines and markers being listed twice.
+    """
+    from qgis.core import (
+        QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsGeometry,
+        QgsProject,
+    )
+
+    project = QgsProject.instance()
+    marker_layers = project.mapLayersByName(_POND_LAYER_NAME)
+    for marker_layer in marker_layers:
+        rows = sorted(
+            (str(feature["pond_id"]),
+             str(feature["distance_label"] or ""))
+            for feature in marker_layer.getFeatures()
+            if feature["pond_id"])
+        if rows:
+            return rows
+
+    outline_layers = []
+    root = project.layerTreeRoot()
+    for name in (_POND_OUTLINES_NAME, _LEGACY_POND_OUTLINES_NAME):
+        for layer in project.mapLayersByName(name):
+            if layer is None or not layer.isValid() or layer.featureCount() == 0:
+                continue
+            node = root.findLayer(layer.id())
+            if node is not None and _node_visible_recursive(node):
+                outline_layers.append(layer)
+    if not outline_layers:
+        return []
+
+    try:
+        from .pond_mapper import _distance_label, _project_redline_bng
+        redline = _project_redline_bng()
+    except Exception:
+        return []
+    if redline is None or redline.isEmpty():
+        return []
+
+    bng = QgsCoordinateReferenceSystem("EPSG:27700")
+    candidates = []
+    for layer in outline_layers:
+        transform = None
+        if layer.crs().isValid() and layer.crs() != bng:
+            transform = QgsCoordinateTransform(
+                layer.crs(), bng, project.transformContext())
+        for feature in layer.getFeatures():
+            geometry = QgsGeometry(feature.geometry())
+            if geometry.isNull() or geometry.isEmpty():
+                continue
+            if transform is not None:
+                try:
+                    geometry.transform(transform)
+                except Exception:
+                    continue
+            distance_m = int(round(redline.distance(geometry)))
+            centre = geometry.centroid()
+            point = centre.asPoint() if centre and not centre.isEmpty() else None
+            candidates.append((
+                distance_m,
+                point.x() if point is not None else 0.0,
+                point.y() if point is not None else 0.0,
+                int(feature.id()),
+            ))
+
+    candidates.sort()
+    return [
+        (f"SWB-{index:02d}", _distance_label(distance_m))
+        for index, (distance_m, _x, _y, _fid) in enumerate(candidates, 1)
+    ]
+
+
 def _add_pond_list_label(layout, leg_rect, top_mm, limit_mm, theme,
                          include_status=False):
     """Render the per-pond distance list ("SWB-01 (140 m)" …) as plain text
@@ -3269,12 +3347,7 @@ def _add_pond_list_label(layout, leg_rect, top_mm, limit_mm, theme,
     from qgis.PyQt.QtGui import QFont, QColor
 
     lyrs = QgsProject.instance().mapLayersByName(_POND_LAYER_NAME)
-    if not lyrs:
-        return None
-    rows = sorted(
-        (f["pond_id"], f["distance_label"] or "")
-        for f in lyrs[0].getFeatures() if f["pond_id"]
-    )
+    rows = _pond_map_rows()
     if not rows:
         return None
     status_by_id = {}
@@ -3312,7 +3385,7 @@ def _add_pond_list_label(layout, leg_rect, top_mm, limit_mm, theme,
         except Exception:
             status_by_id = {}
     gcn_class_by_id = {}
-    if lyrs[0].fields().indexOf("gcn_status") >= 0:
+    if lyrs and lyrs[0].fields().indexOf("gcn_status") >= 0:
         gcn_class_by_id = {
             str(f["pond_id"]): str(f["gcn_status"] or "").strip().upper()
             for f in lyrs[0].getFeatures() if f["pond_id"]
@@ -3853,13 +3926,15 @@ def _build_desk_study_legend(legend_item, layers, map_type):
                     model.refreshLayerLegend(tree_lyr)
                     remaining = model.layerLegendNodes(tree_lyr)
                     if remaining:
-                        if water_body_lyr.featureCount() == 0:
+                        pond_count = len(_pond_map_rows())
+                        if pond_count == 0:
                             remaining[0].setUserLabel(
                                 "Standing water body\n"
                                 "None identified within the search area")
                         else:
                             remaining[0].setUserLabel(
-                                "Water body" if n == 1 else f"{n} water bodies")
+                                "Water body" if pond_count == 1
+                                else f"{pond_count} water bodies")
                     # The group heading + count row say it all — hide the
                     # "Water Body" layer heading between them.
                     QgsLegendRenderer.setNodeLegendStyle(

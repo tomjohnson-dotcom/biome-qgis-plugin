@@ -628,6 +628,15 @@ class HabitatFormScreen(QWidget):
         self._live_measure_filter      = None    # cursor length label while drawing lines
         self._build_ui()
 
+    def _bind_main_panel_layer_signals(self, layer):
+        """Bind refresh/pair-sync signals when a habitat layer is first made."""
+        try:
+            if (layer is not None and self._main_panel is not None
+                    and hasattr(self._main_panel, "_connect_layer_signals")):
+                self._main_panel._connect_layer_signals(layer)
+        except Exception:
+            pass
+
     def keyPressEvent(self, event):
         """Escape while placing trees = Done Placing Trees."""
         if event.key() == Qt.Key.Key_Escape and self._tree_mode:
@@ -2821,6 +2830,7 @@ class HabitatFormScreen(QWidget):
                 layer = self.layer_manager.create_scratch_layer(layer_key)
             else:
                 raise
+        self._bind_main_panel_layer_signals(layer)
         self._active_layer = layer
 
         cfg = layer.editFormConfig()
@@ -3035,12 +3045,12 @@ class HabitatFormScreen(QWidget):
         hab_type      = getattr(self, "_drawing_hab_type", "") or self.habitat_type_combo.currentText()
         sub_type      = getattr(self, "_drawing_sub_type", "") or self.sub_combo.currentText()
         condition     = self.condition_combo.currentText()
-        # Retention is no longer entered by hand. Baseline trees are auto-set
-        # Retained (a Retained proposed twin is created below when paired
-        # mapping is on); the classifier derives the final fate via pair_id /
-        # presence. Proposed-only trees are Created.
+        # Retention is no longer entered by hand. With paired mapping ON, a tree
+        # placed from either phase gets a linked twin and both start Retained.
+        # A genuinely proposed-only tree starts Created.
         if self.phase == "proposed":
-            retention = "Created"
+            retention = ("Retained" if getattr(
+                self._main_panel, "_proposed_mapping", False) else "Created")
         else:
             retention = "Retained"
         hab_key       = HABITAT_TYPES.get(hab_type, {}).get(sub_type, {}).get("key", "")
@@ -3100,8 +3110,36 @@ class HabitatFormScreen(QWidget):
                     )
                     self._stamp_pair_id(layer, bl_fid, pl, pl_fid)
 
+        elif getattr(self._main_panel, "_proposed_mapping", False):
+            # The paired switch is phase-agnostic: a tree drawn from Proposed
+            # gets the same linked baseline twin as the forward workflow.
+            feat = layer.getFeature(bl_fid) if bl_fid is not None else None
+            if feat and feat.isValid() and not feat.geometry().isNull():
+                geom = QgsGeometry.fromWkt(feat.geometry().asWkt())
+                bl_extra = dict(extra) if extra else {}
+                bl_extra["prop_type"] = hab_type
+                bl_extra["prop_sub"] = sub_type
+                bl_extra["prop_cond"] = condition
+                baseline_fids, baseline_layer = self._write_baseline_from_proposed(
+                    geom, hab_type, sub_type, condition, "Retained", bl_extra,
+                    drawn_geom=geom)
+                baseline_fid = ((baseline_fids[0] if baseline_fids else None)
+                                if isinstance(baseline_fids, list)
+                                else baseline_fids)
+                if baseline_layer is not None and baseline_fid is not None:
+                    self._stamp_pair_id(
+                        baseline_layer, baseline_fid, layer, bl_fid)
+                    extra_baseline = (baseline_fids[1:]
+                                      if isinstance(baseline_fids, list) else None)
+                    self._push_global_undo(
+                        baseline_layer, baseline_fid, layer, bl_fid,
+                        extra_baseline_fids=extra_baseline)
+                    pl_fid, pl = bl_fid, layer
+
         # Push to global undo before re-opening edit session
-        self._push_global_undo(layer, bl_fid, pl, pl_fid)
+        if not (self.phase == "proposed" and pl_fid is not None
+                and getattr(self._main_panel, "_proposed_mapping", False)):
+            self._push_global_undo(layer, bl_fid, pl, pl_fid)
 
         # Proximity pairing prompt: only when this was a STANDALONE placement
         # (no proposed twin was just written). If the paired toggle created a
@@ -3262,9 +3300,12 @@ class HabitatFormScreen(QWidget):
         # spatial net of baseline vs proposed polygons (stored blank). Hedgerows
         # and watercourses are auto-set Retained (a Retained proposed twin is
         # created below when paired mapping is on); the classifier derives the
-        # final fate via pair_id / presence. Proposed-only features are blank.
+        # final fate via pair_id / presence. With paired mapping ON, proposed
+        # linear features also start Retained because a baseline twin is made.
+        # Areas remain blank because their fate is derived spatially.
         if self.phase == "proposed":
-            retention = ""
+            retention = ("Retained" if self.habitat_key != "area" and getattr(
+                self._main_panel, "_proposed_mapping", False) else "")
         elif self.habitat_key == "area":
             retention = ""
         else:
@@ -3517,28 +3558,38 @@ class HabitatFormScreen(QWidget):
 
         pl_fid, pl = None, None
 
-        if self._proposed_leads_baseline and self.phase == "proposed":
-            # ── Reverse mode: proposed was drawn → write baseline counterpart ──
-            feat = layer.getFeature(bl_fid) if bl_fid is not None else None
-            if feat and feat.isValid() and not feat.geometry().isNull():
+        reverse_extra_pairs = []
+        if (self.phase == "proposed"
+                and getattr(self._main_panel, "_proposed_mapping", False)):
+            # ── Proposed drawn → create the same baseline counterpart ───────
+            # Work from the final clipped proposed geometry so both layers begin
+            # coincident.  This applies equally to areas, hedgerows and reaches.
+            for source_fid in bl_fids:
+                feat = layer.getFeature(source_fid)
+                if not feat or not feat.isValid() or feat.geometry().isNull():
+                    continue
                 geom = QgsGeometry.fromWkt(feat.geometry().asWkt())
-                if retention == "Retained":
-                    bl_hab_type = hab_type; bl_sub_type = sub_type
-                    bl_condition = condition; bl_retention = "Retained"
-                elif retention == "Enhanced":
-                    bl_hab_type = prop_type; bl_sub_type = prop_sub
-                    bl_condition = prop_cond; bl_retention = "Enhanced"
-                else:
-                    bl_hab_type = prop_type; bl_sub_type = prop_sub
-                    bl_condition = prop_cond; bl_retention = "Lost"
                 bl_extra = dict(extra) if extra else {}
                 bl_extra["prop_type"] = hab_type
-                bl_extra["prop_sub"]  = sub_type
+                bl_extra["prop_sub"] = sub_type
                 bl_extra["prop_cond"] = condition
-                _bl_fids, pl = self._write_baseline_from_proposed(
-                    geom, bl_hab_type, bl_sub_type, bl_condition, bl_retention, bl_extra
-                )
-                pl_fid = _bl_fids[0] if isinstance(_bl_fids, list) and _bl_fids else _bl_fids
+                baseline_retention = ("" if self.habitat_key == "area"
+                                      else "Retained")
+                made_fids, made_layer = self._write_baseline_from_proposed(
+                    geom, hab_type, sub_type, condition, baseline_retention,
+                    bl_extra, drawn_geom=geom)
+                made_fids = (made_fids if isinstance(made_fids, list)
+                             else ([made_fids] if made_fids is not None else []))
+                if not made_fids or made_layer is None:
+                    continue
+                if self.habitat_key in ("hedgerow", "watercourse"):
+                    self._stamp_pair_id(
+                        made_layer, made_fids[0], layer, source_fid)
+                for made_fid in made_fids:
+                    if pl_fid is None:
+                        pl, pl_fid = made_layer, made_fid
+                    else:
+                        reverse_extra_pairs.append((made_layer, made_fid))
 
         elif self.phase == "baseline" and _is_linear_or_point:
             # Hedgerow / watercourse: auto-retained. When paired mapping is on,
@@ -3559,7 +3610,8 @@ class HabitatFormScreen(QWidget):
         # parts ride along as extra fids so one undo removes the whole placement.
         _extra_parts = [f for f in bl_fids if f != bl_fid] or None
         self._push_global_undo(layer, bl_fid, pl, pl_fid,
-                               extra_baseline_fids=_extra_parts)
+                               extra_baseline_fids=_extra_parts,
+                               extra_pairs=reverse_extra_pairs or None)
 
         layer.triggerRepaint()
         self.iface.mapCanvas().refresh()
@@ -3929,6 +3981,7 @@ class HabitatFormScreen(QWidget):
                     "Please save your QGIS project before saving habitat features.")
                 return None, None
             raise
+        self._bind_main_panel_layer_signals(bl_layer)
 
         hab_key_val = HABITAT_TYPES.get(hab_type, {}).get(display_sub, {}).get("key", "")
         feat = QgsFeature(bl_layer.fields())
@@ -4033,6 +4086,7 @@ class HabitatFormScreen(QWidget):
                 )
                 return None, None
             raise
+        self._bind_main_panel_layer_signals(prop_layer)
         hab_key    = HABITAT_TYPES.get(hab_type, {}).get(display_sub, {}).get("key", "")
 
         feat   = QgsFeature(prop_layer.fields())

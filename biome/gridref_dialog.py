@@ -816,7 +816,18 @@ FEATURE_GROUPS_FLAT: List[tuple] = [
 # a bespoke SVG can be added to FEATURE_SVG later to replace the emoji for any
 # of these without touching this block.
 
+_NEW_POINT_SVG: Dict[str, str] = {
+    "Floodlight": "floodlight.svg",
+    "Security / PIR Light": "security_pir_light.svg",
+    "Street Light": "street_light.svg",
+}
+
 _NEW_POINT_EMOJI: Dict[str, str] = {
+    # Lighting
+    "Floodlight": "🔦", "Wall-mounted Exterior Light": "💡",
+    "Bollard Light": "💡", "Lighting Column": "💡", "Street Light": "💡",
+    "Security / PIR Light": "🔦", "Temporary Construction Light": "🚧",
+    "Bat-sensitive Luminaire": "🦇",
     # Bats
     "Confirmed Roost": "🦇", "Bat Droppings": "🦇", "Bat Urine Staining": "🦇",
     "Bat Feeding Remains": "🦇", "Bat Corpse": "🦇",
@@ -869,6 +880,18 @@ _NEW_POINT_EMOJI: Dict[str, str] = {
 }
 
 _NEW_POINT_GROUPS: List[tuple] = [
+    ("💡  Lighting", [
+        ("Luminaires", [
+            "Floodlight",
+            "Wall-mounted Exterior Light",
+            "Bollard Light",
+            "Lighting Column",
+            "Street Light",
+            "Security / PIR Light",
+            "Temporary Construction Light",
+            "Bat-sensitive Luminaire",
+        ]),
+    ]),
     ("🐾  Species Records", [
         ("Bats", ["Confirmed Roost"]),
         ("Birds", ["Heronry", "Schedule 1 Nest"]),
@@ -926,6 +949,11 @@ _NEW_POINT_GROUPS: List[tuple] = [
 
 _NEW_LINE_FEATURES: Dict[str, Dict[str, str]] = {
     "Important Hedgerow": {"color": "#2e7d32", "width": "1.4", "style": "solid"},
+    "Line of Trees": {"color": "#3F6F3A", "width": "1.4", "style": "solid"},
+    "Light Spill Direction": {
+        "color": "#E0A400", "width": "1.2", "style": "solid",
+        "render": "arrow",
+    },
     "Protective Heras Fencing": {"color": "#1E6FB8", "width": "1.2", "style": "dash"},
     "Rigid Tree-protection Barrier": {"color": "#7A2E8E", "width": "1.4", "style": "solid"},
     "Site Access Route (Arrow)": {
@@ -934,8 +962,12 @@ _NEW_LINE_FEATURES: Dict[str, Dict[str, str]] = {
     },
 }
 _NEW_LINE_GROUPS: List[tuple] = [
+    ("💡  Lighting", [
+        ("Direction", ["Light Spill Direction"]),
+    ]),
     ("🌿  Habitat", [
         ("Hedgerows", ["Important Hedgerow"]),
+        ("Trees", ["Line of Trees"]),
     ]),
     ("🚧  Exclusion", [
         ("Fencing", [
@@ -949,6 +981,10 @@ _NEW_LINE_GROUPS: List[tuple] = [
 ]
 
 _NEW_AREA_FEATURES: Dict[str, Dict[str, str]] = {
+    "Woodland":                {"fill": "#638B4B", "border": "#355E2F", "opacity": "0.30", "style": "solid"},
+    "Lighting Coverage Area":  {"fill": "#FFE36E", "border": "#D6A700", "opacity": "0.24", "style": "solid"},
+    "Dark Corridor":          {"fill": "#24344D", "border": "#101C30", "opacity": "0.24", "style": "solid"},
+    "Lighting Exclusion Zone": {"fill": "#687487", "border": "#293547", "opacity": "0.18", "style": "dash"},
     "Japanese Knotweed Stand": {"fill": "#cc3333", "border": "#991111", "opacity": "0.25", "style": "dash dot"},
     "Invasive Species Stand":  {"fill": "#cc5555", "border": "#992222", "opacity": "0.22", "style": "dash dot"},
     "Reptile Receptor Site":   {"fill": "#44aa44", "border": "#227722", "opacity": "0.25", "style": "dash"},
@@ -960,6 +996,16 @@ _NEW_AREA_FEATURES: Dict[str, Dict[str, str]] = {
     "Site Access Route (Area)": {"fill": "#E8A15B", "border": "#B65314", "opacity": "0.25", "style": "dash"},
 }
 _NEW_AREA_GROUPS: List[tuple] = [
+    ("💡  Lighting", [
+        ("Coverage and Controls", [
+            "Lighting Coverage Area",
+            "Dark Corridor",
+            "Lighting Exclusion Zone",
+        ]),
+    ]),
+    ("🌿  Habitat", [
+        ("Trees and Woodland", ["Woodland"]),
+    ]),
     ("🚫  Invasive", [
         ("Stands", ["Japanese Knotweed Stand", "Invasive Species Stand"]),
     ]),
@@ -1073,11 +1119,19 @@ _PRA_LINE_GROUPS: List[tuple] = [
 # Internal roost spaces outlined on the map. Drawn as a bright cyan outline with
 # an almost-clear fill so the aerial imagery beneath still reads.
 _PRA_AREA_FEATURES: Dict[str, Dict[str, str]] = {
+    "Woodland with PRF-I Trees": {"fill": "#E7A33E", "border": "#A65F00", "opacity": "0.24", "style": "dash"},
+    "Woodland with PRF-M Trees": {"fill": "#C95555", "border": "#8B2424", "opacity": "0.24", "style": "dash"},
     "Loft Space":     {"fill": "#41D6E8", "border": "#00B8CE", "opacity": "0.10", "style": "solid"},
     "Roof Void":      {"fill": "#41D6E8", "border": "#0090A8", "opacity": "0.10", "style": "dash"},
     "Cellar / Basement Void": {"fill": "#7A6FC4", "border": "#4A3F94", "opacity": "0.12", "style": "dash"},
 }
 _PRA_AREA_GROUPS: List[tuple] = [
+    ("🦇  Bat Survey", [
+        ("Tree Roost Features", [
+            "Woodland with PRF-I Trees",
+            "Woodland with PRF-M Trees",
+        ]),
+    ]),
     ("🔬  Survey", [
         ("Bat Survey", ["Loft Space", "Roof Void", "Cellar / Basement Void"]),
     ]),
@@ -1131,6 +1185,7 @@ def _merge_nested_groups(groups: List[tuple], groups_flat: List[tuple],
 def _register_builtin_additions() -> None:
     """Fold the 2026-06 catalogue expansion into the live module tables. Runs
     once at import, before any dialog is built."""
+    FEATURE_SVG.update(_NEW_POINT_SVG)
     for name, emoji in _NEW_POINT_EMOJI.items():
         FEATURE_EMOJI.setdefault(name, emoji)
     _merge_nested_groups(FEATURE_GROUPS, FEATURE_GROUPS_FLAT, _NEW_POINT_GROUPS)
@@ -5221,7 +5276,13 @@ class GridRefDialog(QDialog):
         return Path(os.path.dirname(__file__)) / "emoji_cache"
 
     def _pick_emoji_font(self) -> str:
-        families = set(QFontDatabase().families())
+        # Qt 6 (used by QGIS 4) exposes families() as a static method and no
+        # longer permits constructing an empty QFontDatabase.  Retain the
+        # instance fallback for older Qt/QGIS installations.
+        try:
+            families = set(QFontDatabase.families())
+        except TypeError:
+            families = set(QFontDatabase().families())
         for f in DEFAULT_EMOJI_FONTS:
             if f in families:
                 return f
@@ -6094,6 +6155,8 @@ class GridRefDialog(QDialog):
         aliases = {
             "Consented Working Area": "Permitted Construction Working Area",
             "Site Access Route": "Site Access Route (Arrow)",
+            "PRF-I Woodland": "Woodland with PRF-I Trees",
+            "PRF-M Woodland": "Woodland with PRF-M Trees",
         }
         field_idx = layer.fields().indexOf("ftype")
         if field_idx < 0:

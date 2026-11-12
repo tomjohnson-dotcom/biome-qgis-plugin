@@ -1147,8 +1147,10 @@ class DeskStudyMixin:
         # (plan mode) — see _canvas_context_menu — so the standalone tool buttons
         # were removed.
 
-        self._prop_btn = _tool_btn("Property boundaries", "map-2", checkable=True,
-                                   tooltip="Toggle HM Land Registry INSPIRE property boundary polygons")
+        self._prop_btn = _tool_btn(
+            "Property boundaries", "map-2", checkable=True,
+            tooltip=("Toggle official INSPIRE cadastral parcels: HM Land Registry "
+                     "in England and Wales, or Registers of Scotland in Scotland"))
         self._prop_btn.clicked.connect(self._on_property_boundaries_toggle)
 
         mapping_group, mapping_vl = _section_group()
@@ -1276,13 +1278,16 @@ class DeskStudyMixin:
 
         self._lws_report_btn = _tool_btn(
             "LWS report", "file-text", color="#00897b",
-            tooltip="Generate a table of all entered Local Wildlife Sites with distance and direction from the redline",
+            tooltip=("Generate a table automatically from imported LWS polygons "
+                     "and any manually entered sites, with distance and direction "
+                     "from the red line"),
         )
         self._lws_report_btn.clicked.connect(self._run_lws_report)
 
         self._lws_import_btn = _tool_btn(
-            "Add LWS from file", "file-text", color="#00897b",
-            tooltip="Import Local Wildlife Site boundaries from a GeoPackage or other spatial file",
+            "Import LWS boundaries", "polygon", color="#00897b",
+            tooltip=("Import mapped Local Wildlife Site polygon boundaries from "
+                     "a GeoPackage, GeoJSON or shapefile"),
         )
         self._lws_import_btn.clicked.connect(self._on_lws_import)
 
@@ -3613,7 +3618,10 @@ class DeskStudyMixin:
                 # Genuinely nothing in the national dataset → council link
                 self._show_tpo_no_results_dialog()
             else:
-                QMessageBox.critical(self, "TPO Load Failed", hard_err or pts_res)
+                QMessageBox.warning(
+                    self, "TPO Service Temporarily Unavailable",
+                    hard_err or pts_res or
+                    "The TPO service could not be reached. Please try again shortly.")
             self._tpo_btn.setChecked(False)
             self._tpo_btn.setText("🌳  Show TPO\nLocations")
             return
@@ -4830,18 +4838,19 @@ class DeskStudyMixin:
         )
 
     def _run_lws_report(self):
-        """Generate and display the LWS report table."""
+        """Generate the report from all LWS features currently in the project."""
         from .designated_sites import get_lws_sites_with_distances
-        if not self._lws_feature_ids:
+        redline_geom = self._get_redline_geom()
+        rows = get_lws_sites_with_distances(redline_geom)
+        if not rows:
             from qgis.PyQt.QtWidgets import QMessageBox
             QMessageBox.information(
                 self, "No Sites",
-                "No Local Wildlife Sites have been entered yet.\n"
-                "Use the 'Add Wildlife Site' button to enter sites manually."
+                "No Local Wildlife Site polygons or manually entered sites are "
+                "currently loaded.\n\nUse 'Import LWS boundaries' or 'Add wildlife "
+                "site' first."
             )
             return
-        redline_geom = self._get_redline_geom()
-        rows = get_lws_sites_with_distances(redline_geom)
         self._show_lws_report_dialog(rows)
 
     def _show_lws_report_dialog(self, rows):
@@ -4862,7 +4871,9 @@ class DeskStudyMixin:
 
         hdr = QLabel(
             "<b>Local Wildlife Sites recorded within a 2 km radius of the survey site</b>"
-            "<br><span style='font-size:10px;color:#717E75;'>*Data from DEFRA MAGIC / Local Records Centre</span>"
+            "<br><span style='font-size:10px;color:#717E75;'>*Data from imported "
+            "local authority or Local Environmental Records Centre spatial data, "
+            "and any manually entered records</span>"
         )
         hdr.setStyleSheet("font-size:12px; color:#1A2420; padding-bottom:4px;")
         layout.addLayout(self._report_header_row(hdr))
@@ -7980,9 +7991,60 @@ class DeskStudyMixin:
     _PROP_LAYER_NAME = "Property Boundaries (HMLR INSPIRE)"
     _PROP_WMS_URL    = "https://inspire.landregistry.gov.uk/inspire/ows"
     _PROP_LAYER_ID   = "inspire:CP.CadastralParcel"
+    _PROP_SCOT_LAYER_NAME = "Property Boundaries (RoS INSPIRE)"
+    _PROP_SCOT_WMS_URL = "https://ros-inspire.themapcloud.com/maps/wms"
+    _PROP_SCOT_LAYER_ID = "CP.CadastralParcel"
+
+    def _property_boundary_region(self):
+        """Region for the property overlay.
+
+        Prefer an existing red-line centroid. Before a red line has been drawn,
+        use the centre of the current map canvas so property parcels can be used
+        to locate the site in the first place. The user's manual region override
+        is honoured in both cases by ``region.for_point``.
+        """
+        point = self._redline_centroid_bng()
+        if point is None:
+            try:
+                from qgis.core import (QgsCoordinateReferenceSystem,
+                                       QgsCoordinateTransform, QgsProject)
+                canvas = self.iface.mapCanvas()
+                centre = canvas.center()
+                canvas_crs = canvas.mapSettings().destinationCrs()
+                bng = QgsCoordinateReferenceSystem("EPSG:27700")
+                if canvas_crs != bng:
+                    centre = QgsCoordinateTransform(
+                        canvas_crs, bng, QgsProject.instance()).transform(centre)
+                point = (centre.x(), centre.y())
+            except Exception:
+                point = None
+        if point is not None:
+            return _region.for_point(*point)
+        return _region.active()
+
+    def _property_boundary_service(self):
+        """Return the national cadastral WMS appropriate to the current view."""
+        if self._property_boundary_region() == "scotland":
+            return {
+                "provider": "RoS",
+                "name": self._PROP_SCOT_LAYER_NAME,
+                "url": self._PROP_SCOT_WMS_URL,
+                "layer": self._PROP_SCOT_LAYER_ID,
+            }
+        return {
+            "provider": "HMLR",
+            "name": self._PROP_LAYER_NAME,
+            "url": self._PROP_WMS_URL,
+            "layer": self._PROP_LAYER_ID,
+        }
+
+    def _property_boundary_layers(self, project):
+        """All property-boundary overlays, including either national service."""
+        return (project.mapLayersByName(self._PROP_LAYER_NAME)
+                + project.mapLayersByName(self._PROP_SCOT_LAYER_NAME))
 
     def _on_property_boundaries_toggle(self, checked):
-        """Load or remove the HM Land Registry INSPIRE property boundary WMS layer."""
+        """Load the appropriate official property-boundary WMS for the site."""
         from qgis.core import QgsProject, QgsRasterLayer
 
         project = QgsProject.instance()
@@ -7990,14 +8052,22 @@ class DeskStudyMixin:
         if not checked:
             # "Property Addresses (OSM)" sweeps up leftovers from builds that
             # still had the removed OSM house-number labels feature.
-            for lyr in (project.mapLayersByName(self._PROP_LAYER_NAME)
+            for lyr in (self._property_boundary_layers(project)
                         + project.mapLayersByName("Property Addresses (OSM)")):
                 project.removeMapLayer(lyr.id())
             self.iface.mapCanvas().refresh()
             return
 
         # Already loaded — just make visible
-        existing = project.mapLayersByName(self._PROP_LAYER_NAME)
+        service = self._property_boundary_service()
+
+        # If the site has moved across the national boundary, discard the
+        # previously selected service before loading the correct one.
+        for lyr in self._property_boundary_layers(project):
+            if lyr.name() != service["name"]:
+                project.removeMapLayer(lyr.id())
+
+        existing = project.mapLayersByName(service["name"])
         if existing:
             node = project.layerTreeRoot().findLayer(existing[0].id())
             if node is not None:
@@ -8016,14 +8086,14 @@ class DeskStudyMixin:
         from qgis.PyQt.QtWidgets import QApplication as _App
         _App.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._probe_hmlr_and_load()
+            self._load_property_boundaries(service)
         finally:
             _App.restoreOverrideCursor()
             self._prop_btn.setEnabled(True)
 
-    def _probe_hmlr_and_load(self):
-        """Load the HM Land Registry INSPIRE cadastral parcel WMS layer directly
-        via QGIS's own WMS provider.
+    def _load_property_boundaries(self, service=None):
+        """Load the appropriate INSPIRE cadastral parcel WMS directly through
+        QGIS's WMS provider.
 
         The INSPIRE service blocks plain Python urllib requests with HTTP 403,
         so we skip the GetCapabilities probe entirely and let QGIS handle the
@@ -8032,11 +8102,14 @@ class DeskStudyMixin:
         from qgis.core import QgsProject, QgsRasterLayer, Qgis, QgsMessageLog
         from qgis.PyQt.QtWidgets import QMessageBox
 
-        wms_url   = self._PROP_WMS_URL
-        prop_layer = self._PROP_LAYER_ID   # "inspire:CP.CadastralParcel"
+        service = service or self._property_boundary_service()
+        wms_url = service["url"]
+        prop_layer = service["layer"]
+        layer_name = service["name"]
+        provider = service["provider"]
 
         QgsMessageLog.logMessage(
-            f"[HMLR] Loading layer='{prop_layer}' directly via QGIS WMS provider",
+            f"[{provider}] Loading layer='{prop_layer}' directly via QGIS WMS provider",
             "Biome", Qgis.MessageLevel.Info
         )
 
@@ -8053,11 +8126,11 @@ class DeskStudyMixin:
             f"&url={wms_url}"
         )
 
-        lyr = QgsRasterLayer(uri, self._PROP_LAYER_NAME, "wms")
+        lyr = QgsRasterLayer(uri, layer_name, "wms")
 
         if not lyr.isValid():
             QgsMessageLog.logMessage(
-                f"[HMLR] Layer invalid — trying WMS 1.1.1 fallback",
+                f"[{provider}] Layer invalid — trying WMS 1.1.1 fallback",
                 "Biome", Qgis.MessageLevel.Warning
             )
             uri_fallback = (
@@ -8072,12 +8145,12 @@ class DeskStudyMixin:
                 "&IgnoreGetMapUrl=1"
                 f"&url={wms_url}"
             )
-            lyr = QgsRasterLayer(uri_fallback, self._PROP_LAYER_NAME, "wms")
+            lyr = QgsRasterLayer(uri_fallback, layer_name, "wms")
 
         if not lyr.isValid():
             QMessageBox.critical(
                 self, "Property Boundaries",
-                "Could not load the HM Land Registry INSPIRE WMS layer.\n\n"
+                f"Could not load the {provider} INSPIRE cadastral parcel layer.\n\n"
                 "The service may be temporarily unavailable.\n"
                 f"URL: {wms_url}"
             )
@@ -8387,7 +8460,9 @@ class DeskStudyMixin:
             if hasattr(self, "_buffer_2km_btn"):
                 self._buffer_2km_btn.setChecked(_visible("Search Buffer"))
             if hasattr(self, "_prop_btn"):
-                self._prop_btn.setChecked(_visible(self._PROP_LAYER_NAME))
+                self._prop_btn.setChecked(
+                    _visible(self._PROP_LAYER_NAME)
+                    or _visible(self._PROP_SCOT_LAYER_NAME))
         except Exception:
             import traceback
             from qgis.core import QgsMessageLog, Qgis
@@ -9908,7 +9983,24 @@ class DeskStudyMixin:
             _present = {r["type"] for r in rows}
             _expansions = [f"{acr} = {full}" for acr, full in _TYPE_EXPANSIONS
                            if acr in _present]
-            _src = _region.ds_source_name()
+            # Use the provenance returned with the records.  Region remains a
+            # fallback for older/cached rows that pre-date per-row provenance.
+            _row_sources = {
+                str(r.get("source") or "").strip() for r in rows
+                if str(r.get("source") or "").strip()
+            }
+            if _row_sources == {"NatureScot"}:
+                _src = "NatureScot"
+            elif _row_sources == {"Scottish Government"}:
+                _src = "Scottish Government"
+            elif _row_sources and _row_sources <= {"NatureScot", "Scottish Government"}:
+                _src = "NatureScot / Scottish Government"
+            elif len(_row_sources) == 1:
+                _src = next(iter(_row_sources))
+            elif _row_sources:
+                _src = " / ".join(sorted(_row_sources))
+            else:
+                _src = _region.ds_source_name()
             _footnote = (
                 f"*Data from {_src} ({'; '.join(_expansions)})."
                 if _expansions else f"*Data from {_src}."

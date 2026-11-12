@@ -760,6 +760,15 @@ def _fetch_ds_layer(entry, bbox_param, easting, northing, redline_geom,
             "centroid_gr": centroid_gr,
             "distance_m":  dist,
             "direction":   direction,
+            # Keep the provenance with each report row.  The report tools use
+            # this rather than merely inferring a source from the site's
+            # region, which matters for NatureScot and Scottish Government
+            # datasets displayed through the same designated-sites report.
+            "source":      (
+                "NatureScot" if wms_slug == "naturescot"
+                else "Scottish Government" if wms_slug == "scotgov"
+                else "Natural England / DEFRA MAGIC"
+            ),
         })
 
     return layer_results
@@ -4186,6 +4195,8 @@ def fetch_planning_entities(dataset, bbox_wkt):
     callers can tell a real error apart from a genuinely empty result.
     """
     import json
+    import time
+    import urllib.error
     from urllib.request import urlopen, Request
     from urllib.parse import urlencode
 
@@ -4211,11 +4222,46 @@ def fetch_planning_entities(dataset, bbox_wkt):
         })
         req = Request(f"{_TPO_API_BASE}?{params}",
                       headers={"User-Agent": "BiomeQGISPlugin/1.0"})
-        try:
-            resp = urlopen(req, timeout=30)
-            data = json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            raise RuntimeError(f"{dataset} query failed: {exc}")
+        data = None
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                resp = urlopen(req, timeout=30)
+                data = json.loads(resp.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                # planning.data.gov.uk occasionally returns brief 502/503/504
+                # outages. Retry them quietly before showing anything to the
+                # user; other HTTP responses are not expected to improve on a
+                # retry and should be reported immediately.
+                if exc.code not in (429, 502, 503, 504):
+                    raise RuntimeError(
+                        f"The Planning Data service rejected the TPO request "
+                        f"(HTTP {exc.code}).")
+                if attempt + 1 >= attempts:
+                    raise RuntimeError(
+                        "The Planning Data TPO service is temporarily "
+                        "unavailable. Biome tried three times; please try "
+                        "the TPO button again shortly.")
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                try:
+                    delay = max(0.5, min(float(retry_after), 5.0))
+                except (TypeError, ValueError):
+                    delay = float(attempt + 1)
+                time.sleep(delay)
+            except (urllib.error.URLError, TimeoutError) as exc:
+                if attempt + 1 >= attempts:
+                    raise RuntimeError(
+                        "The Planning Data TPO service could not be reached "
+                        "after three attempts. Check the internet connection "
+                        "and try again shortly.")
+                time.sleep(float(attempt + 1))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                if attempt + 1 >= attempts:
+                    raise RuntimeError(
+                        "The Planning Data TPO service returned an invalid "
+                        "response after three attempts. Please try again shortly.")
+                time.sleep(float(attempt + 1))
         entities = data.get("entities", [])
         all_entities.extend(entities)
         count = data.get("count", 0)
@@ -5733,7 +5779,15 @@ def _lws_layer_or_create():
     from qgis.core import QgsProject, QgsVectorLayer
     existing = QgsProject.instance().mapLayersByName(_LWS_LAYER_NAME)
     if existing:
-        return existing[0]
+        lyr = existing[0]
+        # Older projects may contain an untagged manual LWS memory layer.
+        # Tag it on first use so the next Biome save migrates the points into
+        # the project GeoPackage instead of silently losing them on close.
+        if lyr.providerType() == "memory":
+            lyr.setCustomProperty("skipMemoryLayersCheck", 1)
+            lyr.setCustomProperty("biome_scratch", 1)
+            lyr.setCustomProperty("biome_gpkg_table", "local_wildlife_sites")
+        return lyr
 
     lyr = QgsVectorLayer(
         "Point?crs=EPSG:27700"
@@ -5744,6 +5798,8 @@ def _lws_layer_or_create():
     )
     _style_lws_layer(lyr)
     lyr.setCustomProperty("skipMemoryLayersCheck", 1)
+    lyr.setCustomProperty("biome_scratch", 1)
+    lyr.setCustomProperty("biome_gpkg_table", "local_wildlife_sites")
     QgsProject.instance().addMapLayer(lyr, False)
 
     from qgis.core import QgsProject
@@ -5859,36 +5915,60 @@ def get_lws_sites_with_distances(redline_geom=None):
     """
     from qgis.core import QgsProject, QgsWkbTypes
 
-    existing = (QgsProject.instance().mapLayersByName(_LWS_LAYER_NAME)
-                + QgsProject.instance().mapLayersByName(_LWS_IMPORTED_LAYER_NAME))
+    # Prefer polygon records when a manually entered point has the same name:
+    # the boundary gives the true nearest-edge distance and mapped area.
+    existing = (QgsProject.instance().mapLayersByName(_LWS_IMPORTED_LAYER_NAME)
+                + QgsProject.instance().mapLayersByName(_LWS_LAYER_NAME))
     if not existing:
         return []
 
-    feats = [feat for lyr in existing for feat in lyr.getFeatures()]
-    if not feats:
-        return []
-
     results = []
-    for feat in feats:
-        geom = feat.geometry()
-        if geom is None or geom.isEmpty():
-            continue
+    seen_names = set()
+    for layer in existing:
+        for feat in layer.getFeatures():
+            geom = feat.geometry()
+            if geom is None or geom.isEmpty():
+                continue
 
-        pt_geom = (geom if QgsWkbTypes.geometryType(geom.wkbType()) ==
-                   QgsWkbTypes.GeometryType.PointGeometry else geom.centroid())
-        pt = pt_geom.asPoint()
-        dist, direction = _redline_distance_and_direction(
-            redline_geom, geom, pt.x(), pt.y()
-        )
-        results.append({
-            "name":       str(feat["name"] or "").strip(),
-            "grid_ref":   (str(feat["grid_ref"] or "").strip()
-                           if feat.fields().indexOf("grid_ref") >= 0 else ""),
-            "area_ha":    float(feat["area_ha"] or 0),
-            "distance_m": dist,
-            "direction":  direction,
-            "feature_id": feat.id(),
-        })
+            name = str(feat["name"] or "").strip()
+            identity = " ".join(name.casefold().split())
+            if identity and identity in seen_names:
+                continue
+
+            pt_geom = (geom if QgsWkbTypes.geometryType(geom.wkbType()) ==
+                       QgsWkbTypes.GeometryType.PointGeometry else geom.centroid())
+            pt = pt_geom.asPoint()
+            dist, direction = _redline_distance_and_direction(
+                redline_geom, geom, pt.x(), pt.y()
+            )
+
+            grid_ref = ""
+            for field_name in ("grid_ref", "site_ref"):
+                if feat.fields().indexOf(field_name) >= 0:
+                    grid_ref = str(feat[field_name] or "").strip()
+                    if grid_ref:
+                        break
+            if not grid_ref:
+                try:
+                    from .gridref_utils import osgb_en_to_gridref
+                    grid_ref = osgb_en_to_gridref(
+                        int(round(pt.x())), int(round(pt.y())), 6)
+                except Exception:
+                    grid_ref = ""
+
+            results.append({
+                "name":       name,
+                "grid_ref":   grid_ref,
+                "area_ha":    float(feat["area_ha"] or 0),
+                "distance_m": dist,
+                "direction":  direction,
+                "feature_id": feat.id(),
+                "geometry_type": ("polygon" if QgsWkbTypes.geometryType(
+                    geom.wkbType()) == QgsWkbTypes.GeometryType.PolygonGeometry
+                    else "point"),
+            })
+            if identity:
+                seen_names.add(identity)
 
     results.sort(key=lambda r: r["distance_m"])
     return results
